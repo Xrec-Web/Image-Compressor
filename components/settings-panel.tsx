@@ -176,6 +176,7 @@ const FORMAT_OPTIONS: { value: OutputFormat; label: string }[] = [
   { value: 'jpg', label: 'JPG' },
   { value: 'webp', label: 'WebP' },
   { value: 'avif', label: 'AVIF' },
+  { value: 'png', label: 'PNG' },
 ];
 
 const QUALITY_OPTIONS: { value: QualityPreset; label: string }[] = [
@@ -234,10 +235,15 @@ export default function SettingsPanel({ settings, onChange, disabled }: Settings
 
       {/* Quality hint */}
       <p className="ml-auto text-xs text-muted hidden lg:block">
-        {settings.quality === 'high' && 'q85 · minimal visible loss'}
-        {settings.quality === 'balanced' && 'q75 · web-ready default'}
-        {settings.quality === 'small' && 'q60 · aggressive compression'}
-        {settings.format === 'avif' && ' · WASM-encoded, slower'}
+        {settings.format === 'png'
+          ? 'lossless · quality preset only affects resize'
+          : <>
+              {settings.quality === 'high' && 'q85 · minimal visible loss'}
+              {settings.quality === 'balanced' && 'q75 · web-ready default'}
+              {settings.quality === 'small' && 'q60 · aggressive compression'}
+              {settings.format === 'avif' && ' · WASM-encoded, slower'}
+            </>
+        }
       </p>
     </div>
   );

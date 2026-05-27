@@ -1,5 +1,5 @@
 export type FileStatus = 'pending' | 'processing' | 'done' | 'error';
-export type OutputFormat = 'jpg' | 'webp' | 'avif';
+export type OutputFormat = 'jpg' | 'webp' | 'avif' | 'png';
 export type QualityPreset = 'high' | 'balanced' | 'small';
 export type MaxDimension = 'original' | '2560' | '1920' | '1280' | '800';
 
@@ -39,12 +39,14 @@ export const FORMAT_MIME: Record<OutputFormat, string> = {
   jpg: 'image/jpeg',
   webp: 'image/webp',
   avif: 'image/avif',
+  png: 'image/png',
 };
 
 export const FORMAT_EXT: Record<OutputFormat, string> = {
   jpg: 'jpg',
   webp: 'webp',
   avif: 'avif',
+  png: 'png',
 };
 
 export const ACCEPTED_MIME_TYPES = [

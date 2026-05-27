@@ -1,0 +1,27 @@
+'use client';
+
+import { AnimatePresence } from 'framer-motion';
+import FileCard from '@/components/file-card';
+import type { FileItem } from '@/types';
+
+interface FileGridProps {
+  files: FileItem[];
+  onRemove: (id: string) => void;
+}
+
+export default function FileGrid({ files, onRemove }: FileGridProps) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <AnimatePresence initial={false}>
+        {files.map((item, index) => (
+          <FileCard
+            key={item.id}
+            item={item}
+            onRemove={onRemove}
+            index={index % 8} // cap stagger delay at 8 items
+          />
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+}

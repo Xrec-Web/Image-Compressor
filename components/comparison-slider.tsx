@@ -13,6 +13,7 @@ interface ComparisonSliderProps {
   beforeSize?: string;
   afterSize?: string;
   reduction?: number | null;
+  maxHeight?: number;
 }
 
 export default function ComparisonSlider({
@@ -24,6 +25,7 @@ export default function ComparisonSlider({
   beforeSize,
   afterSize,
   reduction,
+  maxHeight = 420,
 }: ComparisonSliderProps) {
   const [pct, setPct] = useState(50);
   const [isDragging, setIsDragging] = useState(false);
@@ -67,7 +69,7 @@ export default function ComparisonSlider({
 
   const containerStyle: React.CSSProperties = {
     aspectRatio: aspect ? String(aspect) : '4/3',
-    maxHeight: '420px',
+    maxHeight: `${maxHeight}px`,
   };
 
   return (

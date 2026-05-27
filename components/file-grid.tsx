@@ -7,10 +7,9 @@ import type { FileItem } from '@/types';
 interface FileGridProps {
   files: FileItem[];
   onRemove: (id: string) => void;
-  onPreview: (id: string) => void;
 }
 
-export default function FileGrid({ files, onRemove, onPreview }: FileGridProps) {
+export default function FileGrid({ files, onRemove }: FileGridProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <AnimatePresence initial={false}>
@@ -19,7 +18,6 @@ export default function FileGrid({ files, onRemove, onPreview }: FileGridProps) 
             key={item.id}
             item={item}
             onRemove={onRemove}
-            onPreview={onPreview}
             index={index % 8}
           />
         ))}

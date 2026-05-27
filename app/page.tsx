@@ -20,7 +20,7 @@ const BorderBeam = dynamic(
 import UploadZone from '@/components/upload-zone';
 import SettingsPanel from '@/components/settings-panel';
 import FileGrid from '@/components/file-grid';
-import PreviewModal from '@/components/preview-modal';
+import InlinePreview from '@/components/inline-preview';
 import TextSwap from '@/components/text-swap';
 import ProgressBanner from '@/components/progress-banner';
 import SummaryBanner from '@/components/summary-banner';
@@ -75,7 +75,6 @@ export default function HomePage() {
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
   const [sizeWarning, setSizeWarning] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [previewId, setPreviewId] = useState<string | null>(null);
   const stopRef = useRef(false);
 
   // ── Derived state ────────────────────────────────────────────────────────
@@ -237,12 +236,20 @@ export default function HomePage() {
             </motion.div>
           ) : (
             <div>
+              {/* Before/after comparison — always shows the first file as the reference.
+                  key forces a remount (and fresh compression) if the first file changes. */}
+              <InlinePreview
+                key={files[0].id}
+                file={files[0]}
+                settings={settings}
+              />
+
               {/* Compact add-more strip */}
               <UploadZone onFiles={handleAddFiles} compact disabled={isProcessing} />
 
               {/* File grid */}
               <div className="mt-3">
-                <FileGrid files={files} onRemove={handleRemoveFile} onPreview={setPreviewId} />
+                <FileGrid files={files} onRemove={handleRemoveFile} />
               </div>
             </div>
           )}
@@ -342,21 +349,6 @@ export default function HomePage() {
               </button>
             </motion.div>
           )}
-        </AnimatePresence>
-
-        {/* ── Preview modal ─────────────────────────────────────────────────── */}
-        <AnimatePresence>
-          {previewId && (() => {
-            const previewFile = files.find((f) => f.id === previewId);
-            return previewFile ? (
-              <PreviewModal
-                key={previewId}
-                file={previewFile}
-                settings={settings}
-                onClose={() => setPreviewId(null)}
-              />
-            ) : null;
-          })()}
         </AnimatePresence>
 
         {/* ── Footer ────────────────────────────────────────────────────────── */}

@@ -2,18 +2,17 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Eye, CheckCircle2, AlertCircle, Loader2, ImageIcon } from 'lucide-react';
+import { X, CheckCircle2, AlertCircle, Loader2, ImageIcon } from 'lucide-react';
 import { cn, formatBytes, formatReduction } from '@/lib/utils';
 import type { FileItem } from '@/types';
 
 interface FileCardProps {
   item: FileItem;
   onRemove: (id: string) => void;
-  onPreview: (id: string) => void;
   index: number;
 }
 
-export default function FileCard({ item, onRemove, onPreview, index }: FileCardProps) {
+export default function FileCard({ item, onRemove, index }: FileCardProps) {
   const [isHovered, setIsHovered] = useState(false);
 
   const reduction =
@@ -162,36 +161,20 @@ export default function FileCard({ item, onRemove, onPreview, index }: FileCardP
         </AnimatePresence>
       </div>
 
-      {/* Hover buttons */}
+      {/* Remove button — revealed on hover */}
       <AnimatePresence>
         {isHovered && item.status !== 'processing' && (
-          <>
-            {/* Preview button — top-left */}
-            <motion.button
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              transition={{ duration: 0.12 }}
-              onClick={(e) => { e.stopPropagation(); onPreview(item.id); }}
-              className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-foreground/70 text-background flex items-center justify-center hover:bg-accent transition-colors shadow-sm"
-              aria-label="Preview"
-            >
-              <Eye className="w-2.5 h-2.5" />
-            </motion.button>
-
-            {/* Remove button — top-right */}
-            <motion.button
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              transition={{ duration: 0.12 }}
-              onClick={() => onRemove(item.id)}
-              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-foreground text-background flex items-center justify-center hover:bg-danger transition-colors shadow-sm"
-              aria-label="Remove file"
-            >
-              <X className="w-2.5 h-2.5" />
-            </motion.button>
-          </>
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.12 }}
+            onClick={() => onRemove(item.id)}
+            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-foreground text-background flex items-center justify-center hover:bg-danger transition-colors shadow-sm"
+            aria-label="Remove file"
+          >
+            <X className="w-2.5 h-2.5" />
+          </motion.button>
         )}
       </AnimatePresence>
     </motion.div>

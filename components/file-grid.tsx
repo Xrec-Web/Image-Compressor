@@ -7,9 +7,10 @@ import type { FileItem } from '@/types';
 interface FileGridProps {
   files: FileItem[];
   onRemove: (id: string) => void;
+  onPreview: (id: string) => void;
 }
 
-export default function FileGrid({ files, onRemove }: FileGridProps) {
+export default function FileGrid({ files, onRemove, onPreview }: FileGridProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <AnimatePresence initial={false}>
@@ -18,7 +19,8 @@ export default function FileGrid({ files, onRemove }: FileGridProps) {
             key={item.id}
             item={item}
             onRemove={onRemove}
-            index={index % 8} // cap stagger delay at 8 items
+            onPreview={onPreview}
+            index={index % 8}
           />
         ))}
       </AnimatePresence>

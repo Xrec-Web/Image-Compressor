@@ -16,6 +16,47 @@ let ffmpegPromise: Promise<FFmpegInstance> | null = null;
 // ever one active job (and therefore one callback) at a time.
 let activeProgressCb: ((ratio: number) => void) | null = null;
 
+// Per-job state for deriving progress from ffmpeg's log stream. The built-in
+// `progress` event is unreliable for long encodes (it can stay at 0 for
+// minutes), so we also parse `Duration:` and `time=` out of the logs and
+// report whichever source is further along.
+let jobDurationSec = 0; // total input duration, learned from the first log line
+let jobLastRatio = 0; // highest ratio reported so far (progress only moves forward)
+
+function reportRatio(ratio: number): void {
+  const clamped = Math.min(1, Math.max(0, ratio));
+  if (clamped <= jobLastRatio) return;
+  jobLastRatio = clamped;
+  activeProgressCb?.(clamped);
+}
+
+/** Parse an ffmpeg `HH:MM:SS.ss` timestamp into seconds, or NaN. */
+function parseTimestamp(ts: string): number {
+  const m = ts.match(/(\d+):(\d{2}):(\d{2}(?:\.\d+)?)/);
+  if (!m) return NaN;
+  return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+}
+
+/** Pull progress signals out of an ffmpeg log line. */
+function handleLogLine(message: string): void {
+  // Total duration is printed once near the start.
+  if (jobDurationSec === 0) {
+    const dur = message.match(/Duration:\s*(\d+:\d{2}:\d{2}\.\d+)/);
+    if (dur) {
+      const secs = parseTimestamp(dur[1]);
+      if (secs > 0) jobDurationSec = secs;
+    }
+  }
+  // Encode progress lines carry `time=HH:MM:SS.ss`.
+  if (jobDurationSec > 0) {
+    const t = message.match(/time=\s*(\d+:\d{2}:\d{2}\.\d+)/);
+    if (t) {
+      const secs = parseTimestamp(t[1]);
+      if (secs >= 0) reportRatio(secs / jobDurationSec);
+    }
+  }
+}
+
 // Simple FIFO mutex — ffmpeg.wasm can only run one exec at a time.
 let queue: Promise<unknown> = Promise.resolve();
 
@@ -40,12 +81,22 @@ async function loadFFmpeg(): Promise<FFmpegInstance> {
       ]);
 
       const ffmpeg = new FFmpeg();
+      // Two progress sources, both forwarded through reportRatio (monotonic):
+      // the built-in event, plus our own parse of the log stream as a backstop.
       ffmpeg.on('progress', ({ progress }: { progress: number }) => {
-        // ffmpeg occasionally reports >1 near the end; clamp for the UI.
-        activeProgressCb?.(Math.min(1, Math.max(0, progress)));
+        reportRatio(progress);
+      });
+      ffmpeg.on('log', ({ message }: { message: string }) => {
+        handleLogLine(message);
       });
 
       const mt = canUseMultiThread();
+      if (process.env.NODE_ENV !== 'production') {
+        console.info(
+          `[video] ffmpeg.wasm loading ${mt ? 'multi-threaded' : 'SINGLE-threaded'} core` +
+            (mt ? '' : ' — set COOP/COEP headers and reload so crossOriginIsolated is true for much faster encoding.'),
+        );
+      }
       const base = mt ? CORE_BASE_MT : CORE_BASE_ST;
 
       const config: { coreURL: string; wasmURL: string; workerURL?: string } = {
@@ -97,12 +148,17 @@ function buildArgs(inputName: string, outputName: string, settings: VideoSetting
   if (filters.length > 0) args.push('-vf', filters.join(','));
 
   if (format === 'mp4') {
-    args.push('-c:v', 'libx264', '-crf', String(crf), '-preset', 'medium', '-pix_fmt', 'yuv420p');
+    // `veryfast` keeps in-browser (wasm) encoding usable; `medium` can be
+    // several times slower for only a modest size win.
+    args.push('-c:v', 'libx264', '-crf', String(crf), '-preset', 'veryfast', '-pix_fmt', 'yuv420p');
   } else {
     // VP9 constant-quality: -b:v 0 switches libvpx-vp9 into pure CRF mode.
+    // libvpx-vp9 is very slow in wasm — cpu-used 4 + row/tile threading keeps
+    // it from appearing frozen on large/4K sources.
     args.push(
       '-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0',
-      '-row-mt', '1', '-deadline', 'good', '-cpu-used', '2',
+      '-deadline', 'good', '-cpu-used', '4',
+      '-row-mt', '1', '-tile-columns', '2', '-threads', '4',
     );
   }
 
@@ -139,6 +195,8 @@ export async function compressVideo(
     const outputName = `output.${settings.format}`;
 
     activeProgressCb = onProgress ?? null;
+    jobDurationSec = 0;
+    jobLastRatio = 0;
     try {
       await ffmpeg.writeFile(inputName, await fetchFile(file));
       await ffmpeg.exec(buildArgs(inputName, outputName, settings));

@@ -9,7 +9,7 @@ import type { CompressionMode, FileItem, Settings, VideoSettings, FileStatus } f
 import { IMAGE_ACCEPTED_MIME_TYPES, VIDEO_CRF_RANGE } from '@/types';
 import { compressFile } from '@/lib/compress';
 import { generatePdfThumbnail } from '@/lib/pdf';
-import { compressVideo, preloadFFmpeg } from '@/lib/video';
+import { compressVideo, preloadFFmpeg, canUseMultiThread } from '@/lib/video';
 import { downloadAsZip } from '@/lib/zip';
 import {
   generateThumbnail,
@@ -115,6 +115,8 @@ export default function HomePage() {
   const [videoSettings, setVideoSettings] = useState<VideoSettings>(DEFAULT_VIDEO_SETTINGS);
   const [mode, setMode] = useState<CompressionMode>('image');
   const [isProcessing, setIsProcessing] = useState(false);
+  // True while dropped files are being read and previews generated (pre-compress).
+  const [isIngesting, setIsIngesting] = useState(false);
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
   const [videoProgress, setVideoProgress] = useState(0);
   const [sizeWarning, setSizeWarning] = useState(false);
@@ -122,10 +124,16 @@ export default function HomePage() {
   const [btnHover, setBtnHover] = useState(false);
   const [modeHover, setModeHover] = useState<CompressionMode | null>(null);
   const [modePanelHeight, setModePanelHeight] = useState<number | null>(null);
+  // null until checked client-side (avoids SSR hydration mismatch).
+  const [multiThread, setMultiThread] = useState<boolean | null>(null);
   const stopRef = useRef(false);
   const imagePageRef = useRef<HTMLDivElement>(null);
   const pdfPageRef = useRef<HTMLDivElement>(null);
   const videoPageRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMultiThread(canUseMultiThread());
+  }, []);
 
   // ── Derived state ────────────────────────────────────────────────────────
   const hasFiles = files.length > 0;
@@ -139,8 +147,8 @@ export default function HomePage() {
   const currentFileName = files.find((f) => f.id === currentFileId)?.name;
   const modeCopy = MODE_COPY[mode];
 
-  // Beam is active during dragging, compressing, or ready to download
-  const beamActive = isDragging || isProcessing || canDownload;
+  // Beam is active during dragging, reading files, compressing, or ready to download
+  const beamActive = isDragging || isIngesting || isProcessing || canDownload;
 
   const totalOriginalSize = doneFiles.reduce((acc, f) => acc + f.originalSize, 0);
   const totalCompressedSize = doneFiles.reduce((acc, f) => acc + (f.compressedSize ?? 0), 0);
@@ -161,6 +169,7 @@ export default function HomePage() {
     hasFiles,
     files.length,
     sizeWarning,
+    isIngesting,
     isProcessing,
     canDownload,
     allFinished,
@@ -210,6 +219,13 @@ export default function HomePage() {
         )}
       </AnimatePresence>
 
+      {isVideo && pageMode === mode && multiThread === false && (
+        <p className="mt-3 text-[12px] text-amber-300 bg-amber-950/40 border border-amber-800/40 rounded-lg px-3 py-2">
+          Multi-threading is off, so video encoding runs single-threaded and can be very slow
+          (minutes for large or 4K clips). It still works — progress is shown below as it runs.
+        </p>
+      )}
+
       <div className="mt-4">
         {!hasFiles ? (
           <motion.div
@@ -217,11 +233,12 @@ export default function HomePage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: 0.14 }}
           >
-            <BorderBeam size="md" colorVariant="colorful" theme="dark" active={pageMode === mode && isDragging}>
+            <BorderBeam size="md" colorVariant="colorful" theme="dark" active={pageMode === mode && (isDragging || isIngesting)}>
               <UploadZone
                 mode={pageMode}
                 onFiles={handleAddFiles}
                 onDragStateChange={pageMode === mode ? setIsDragging : undefined}
+                loading={pageMode === mode && isIngesting}
                 disabled={pageMode !== mode}
               />
             </BorderBeam>
@@ -246,6 +263,7 @@ export default function HomePage() {
               mode={pageMode}
               onFiles={handleAddFiles}
               compact
+              loading={pageMode === mode && isIngesting}
               disabled={isProcessing || pageMode !== mode}
             />
 
@@ -290,24 +308,29 @@ export default function HomePage() {
         setSizeWarning(false);
       }
 
-      const items: FileItem[] = await Promise.all(
-        accepted.map(async (file) => ({
-          id: crypto.randomUUID(),
-          file,
-          mode,
-          name: file.name,
-          originalSize: file.size,
-          thumbnail:
-            mode === 'image'
-              ? await generateThumbnail(file)
-              : mode === 'pdf'
-                ? await generatePdfThumbnail(file)
-                : await generateVideoThumbnail(file),
-          status: 'pending' as FileStatus,
-        })),
-      );
+      setIsIngesting(true);
+      try {
+        const items: FileItem[] = await Promise.all(
+          accepted.map(async (file) => ({
+            id: crypto.randomUUID(),
+            file,
+            mode,
+            name: file.name,
+            originalSize: file.size,
+            thumbnail:
+              mode === 'image'
+                ? await generateThumbnail(file)
+                : mode === 'pdf'
+                  ? await generatePdfThumbnail(file)
+                  : await generateVideoThumbnail(file),
+            status: 'pending' as FileStatus,
+          })),
+        );
 
-      dispatch({ type: 'ADD_FILES', files: items });
+        dispatch({ type: 'ADD_FILES', files: items });
+      } finally {
+        setIsIngesting(false);
+      }
     },
     [files, mode],
   );

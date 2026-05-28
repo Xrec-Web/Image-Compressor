@@ -14,9 +14,15 @@ interface SummaryBannerProps {
   count: number;
   originalSize: number;
   compressedSize: number;
+  itemLabel?: string;
 }
 
-export default function SummaryBanner({ count, originalSize, compressedSize }: SummaryBannerProps) {
+export default function SummaryBanner({
+  count,
+  originalSize,
+  compressedSize,
+  itemLabel = 'image',
+}: SummaryBannerProps) {
   const checkRef = useRef<HTMLSpanElement>(null);
   const savedBytes = originalSize - compressedSize;
   const pct = originalSize > 0 ? Math.round((savedBytes / originalSize) * 100) : 0;
@@ -78,7 +84,7 @@ export default function SummaryBanner({ count, originalSize, compressedSize }: S
           <p className="text-[13px] text-foreground">
             Compressed{' '}
             <span className="font-semibold">
-              {count} {count === 1 ? 'image' : 'images'}
+              {count} {count === 1 ? itemLabel : `${itemLabel}s`}
             </span>
             {savedBytes > 0 && (
               <>

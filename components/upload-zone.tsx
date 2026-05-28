@@ -4,20 +4,30 @@ import { useRef, useState, useCallback, DragEvent, ChangeEvent } from 'react';
 import { motion } from 'framer-motion';
 import { Upload, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ACCEPTED_MIME_TYPES } from '@/types';
+import type { CompressionMode } from '@/types';
+import { IMAGE_ACCEPTED_MIME_TYPES, PDF_ACCEPTED_MIME_TYPES } from '@/types';
 
 interface UploadZoneProps {
   onFiles: (files: File[]) => void;
   onDragStateChange?: (isDragging: boolean) => void;
   compact?: boolean;
   disabled?: boolean;
+  mode?: CompressionMode;
 }
 
-const ACCEPT_STRING = ACCEPTED_MIME_TYPES.join(',') + ',.heic,.heif';
-
-export default function UploadZone({ onFiles, onDragStateChange, compact = false, disabled = false }: UploadZoneProps) {
+export default function UploadZone({
+  onFiles,
+  onDragStateChange,
+  compact = false,
+  disabled = false,
+  mode = 'image',
+}: UploadZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const acceptString =
+    mode === 'pdf'
+      ? PDF_ACCEPTED_MIME_TYPES.join(',') + ',.pdf'
+      : IMAGE_ACCEPTED_MIME_TYPES.join(',') + ',.heic,.heif';
 
   const setDrag = useCallback((val: boolean) => {
     setIsDraggingOver(val);
@@ -83,7 +93,7 @@ export default function UploadZone({ onFiles, onDragStateChange, compact = false
       >
         <Plus className="w-3.5 h-3.5" />
         <span>Add more files</span>
-        <input ref={inputRef} type="file" accept={ACCEPT_STRING} multiple className="sr-only" onChange={handleChange} />
+        <input ref={inputRef} type="file" accept={acceptString} multiple className="sr-only" onChange={handleChange} />
       </div>
     );
   }
@@ -107,7 +117,7 @@ export default function UploadZone({ onFiles, onDragStateChange, compact = false
         disabled && 'pointer-events-none opacity-40',
       )}
     >
-      <input ref={inputRef} type="file" accept={ACCEPT_STRING} multiple className="sr-only" onChange={handleChange} />
+      <input ref={inputRef} type="file" accept={acceptString} multiple className="sr-only" onChange={handleChange} />
 
       {/* Icon */}
       <motion.div
@@ -123,14 +133,15 @@ export default function UploadZone({ onFiles, onDragStateChange, compact = false
 
       {/* Copy */}
       <p className="text-[15px] font-medium text-foreground tracking-tight mb-1.5">
-        {isDraggingOver ? 'Drop to add' : 'Drop some images.'}
+        {isDraggingOver ? 'Drop to add' : mode === 'pdf' ? 'Drop some PDFs.' : 'Drop some images.'}
       </p>
       <p className="text-sm text-muted text-center leading-relaxed">
         or{' '}
         <span className="underline underline-offset-2 decoration-muted/60 hover:text-foreground transition-colors">
           click to browse
         </span>
-        {' · '}JPG, PNG, WebP, AVIF, HEIC
+        {' · '}
+        {mode === 'pdf' ? 'PDF' : 'JPG, PNG, WebP, AVIF, HEIC'}
       </p>
     </div>
   );

@@ -1,4 +1,5 @@
 export type FileStatus = 'pending' | 'processing' | 'done' | 'error';
+export type CompressionMode = 'image' | 'pdf';
 export type OutputFormat = 'jpg' | 'webp' | 'avif' | 'png';
 export type QualityPreset = 'high' | 'balanced' | 'small';
 export type MaxDimension = 'original' | '2560' | '1920' | '1280' | '800';
@@ -6,6 +7,7 @@ export type MaxDimension = 'original' | '2560' | '1920' | '1280' | '800';
 export interface FileItem {
   id: string;
   file: File;
+  mode: CompressionMode;
   name: string;
   originalSize: number;
   thumbnail: string; // data URL or blob URL
@@ -49,7 +51,7 @@ export const FORMAT_EXT: Record<OutputFormat, string> = {
   png: 'png',
 };
 
-export const ACCEPTED_MIME_TYPES = [
+export const IMAGE_ACCEPTED_MIME_TYPES = [
   'image/jpeg',
   'image/png',
   'image/webp',
@@ -57,3 +59,5 @@ export const ACCEPTED_MIME_TYPES = [
   'image/heic',
   'image/heif',
 ];
+
+export const PDF_ACCEPTED_MIME_TYPES = ['application/pdf'];

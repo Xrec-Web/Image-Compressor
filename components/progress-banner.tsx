@@ -8,9 +8,15 @@ interface ProgressBannerProps {
   current: number;
   total: number;
   currentFile?: string;
+  label?: string;
 }
 
-export default function ProgressBanner({ current, total, currentFile }: ProgressBannerProps) {
+export default function ProgressBanner({
+  current,
+  total,
+  currentFile,
+  label = 'Compressing…',
+}: ProgressBannerProps) {
   const pct = total > 0 ? (current / total) * 100 : 0;
 
   return (
@@ -29,7 +35,7 @@ export default function ProgressBanner({ current, total, currentFile }: Progress
             {currentFile ? (
               <span className="truncate max-w-[280px] inline-block align-bottom">{currentFile}</span>
             ) : (
-              'Compressing…'
+              label
             )}
           </span>
         </div>

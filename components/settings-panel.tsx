@@ -4,9 +4,10 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Settings, OutputFormat, QualityPreset, MaxDimension } from '@/types';
+import type { Settings, OutputFormat, QualityPreset, MaxDimension, CompressionMode } from '@/types';
 
 interface SettingsPanelProps {
+  mode?: CompressionMode;
   settings: Settings;
   onChange: (settings: Settings) => void;
   disabled?: boolean;
@@ -193,7 +194,53 @@ const DIMENSION_OPTIONS: { value: MaxDimension; label: string }[] = [
   { value: '800', label: '800 px' },
 ];
 
-export default function SettingsPanel({ settings, onChange, disabled }: SettingsPanelProps) {
+export default function SettingsPanel({
+  mode = 'image',
+  settings,
+  onChange,
+  disabled,
+}: SettingsPanelProps) {
+  if (mode === 'pdf') {
+    return (
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 bg-card border border-border rounded-xl">
+        <div className="flex items-center gap-2.5">
+          <span className="text-xs font-medium text-muted uppercase tracking-widest whitespace-nowrap">Format</span>
+          <div className="inline-flex rounded-md border border-border overflow-hidden">
+            <span className="px-3.5 py-1.5 text-[13px] font-medium leading-none bg-foreground text-background">
+              PDF
+            </span>
+          </div>
+        </div>
+
+        <div className="w-px h-5 bg-border hidden sm:block" />
+
+        <div className="flex items-center gap-2.5">
+          <span className="text-xs font-medium text-muted uppercase tracking-widest whitespace-nowrap">Mode</span>
+          <div className="inline-flex rounded-md border border-border overflow-hidden">
+            <span className="px-3.5 py-1.5 text-[13px] font-medium leading-none bg-transparent text-foreground">
+              Document compression
+            </span>
+          </div>
+        </div>
+
+        <div className="w-px h-5 bg-border hidden sm:block" />
+
+        <div className="flex items-center gap-2.5">
+          <span className="text-xs font-medium text-muted uppercase tracking-widest whitespace-nowrap">Input</span>
+          <div className="inline-flex rounded-md border border-border overflow-hidden">
+            <span className="px-3.5 py-1.5 text-[13px] font-medium leading-none bg-transparent text-foreground">
+              PDF only
+            </span>
+          </div>
+        </div>
+
+        <p className="ml-auto text-xs text-muted hidden lg:block">
+          PDF mode now swaps the workflow context and upload targeting.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 bg-card border border-border rounded-xl">
       {/* Format */}

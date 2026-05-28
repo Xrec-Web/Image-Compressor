@@ -33,6 +33,10 @@ export function isHeicFile(file: File): boolean {
   );
 }
 
+export function isPdfFile(file: File): boolean {
+  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+}
+
 /**
  * Generate a compact thumbnail (data URL) for a file.
  * Handles HEIC by using browser-image-compression to decode first.

@@ -3,13 +3,13 @@
 import { useReducer, useState, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Download, RotateCcw, Zap } from 'lucide-react';
+import { Lock, Download, RotateCcw, ImageIcon, FileText } from 'lucide-react';
 
-import type { FileItem, Settings, FileStatus } from '@/types';
-import { ACCEPTED_MIME_TYPES } from '@/types';
+import type { CompressionMode, FileItem, Settings, FileStatus } from '@/types';
+import { IMAGE_ACCEPTED_MIME_TYPES } from '@/types';
 import { compressFile } from '@/lib/compress';
 import { downloadAsZip } from '@/lib/zip';
-import { generateThumbnail, isHeicFile, cn, formatBytes } from '@/lib/utils';
+import { generateThumbnail, isHeicFile, isPdfFile, cn, formatBytes } from '@/lib/utils';
 
 // ssr: false prevents the style-tag hydration mismatch BorderBeam causes
 // (server HTML-entity-encodes its injected CSS; client renders raw chars)
@@ -67,16 +67,28 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 const SIZE_WARNING_THRESHOLD = 200 * 1024 * 1024; // 200 MB
+const MODE_COPY: Record<CompressionMode, { title: string; noun: string }> = {
+  image: {
+    title: 'Image Compressor',
+    noun: 'image',
+  },
+  pdf: {
+    title: 'PDF Compressor',
+    noun: 'PDF',
+  },
+};
 
 // ── Component ──────────────────────────────────────────────────────────────
 export default function HomePage() {
   const [files, dispatch] = useReducer(fileReducer, []);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [mode, setMode] = useState<CompressionMode>('image');
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
   const [sizeWarning, setSizeWarning] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [btnHover, setBtnHover] = useState(false);
+  const [modeHover, setModeHover] = useState<CompressionMode | null>(null);
   const stopRef = useRef(false);
 
   // ── Derived state ────────────────────────────────────────────────────────
@@ -89,6 +101,8 @@ export default function HomePage() {
   const canCompress = pendingFiles.length > 0 && !isProcessing;
   const canDownload = allFinished && doneFiles.length > 0;
   const currentFileName = files.find((f) => f.id === currentFileId)?.name;
+  const modeCopy = MODE_COPY[mode];
+  const isPdfMode = mode === 'pdf';
 
   // Beam is active during dragging, compressing, or ready to download
   const beamActive = isDragging || isProcessing || canDownload;
@@ -96,13 +110,21 @@ export default function HomePage() {
   const totalOriginalSize = doneFiles.reduce((acc, f) => acc + f.originalSize, 0);
   const totalCompressedSize = doneFiles.reduce((acc, f) => acc + (f.compressedSize ?? 0), 0);
 
+  const handleModeChange = useCallback((nextMode: CompressionMode) => {
+    if (nextMode === mode || isProcessing) return;
+    setMode(nextMode);
+    setSizeWarning(false);
+    dispatch({ type: 'CLEAR_ALL' });
+  }, [isProcessing, mode]);
+
   // ── Add files ────────────────────────────────────────────────────────────
   const handleAddFiles = useCallback(
     async (newFiles: File[]) => {
       const accepted = newFiles.filter(
         (f) =>
-          ACCEPTED_MIME_TYPES.includes(f.type) ||
-          isHeicFile(f),
+          mode === 'pdf'
+            ? isPdfFile(f)
+            : IMAGE_ACCEPTED_MIME_TYPES.includes(f.type) || isHeicFile(f),
       );
       if (accepted.length === 0) return;
 
@@ -119,16 +141,17 @@ export default function HomePage() {
         accepted.map(async (file) => ({
           id: crypto.randomUUID(),
           file,
+          mode,
           name: file.name,
           originalSize: file.size,
-          thumbnail: await generateThumbnail(file),
+          thumbnail: mode === 'image' ? await generateThumbnail(file) : '',
           status: 'pending' as FileStatus,
         })),
       );
 
       dispatch({ type: 'ADD_FILES', files: items });
     },
-    [files],
+    [files, mode],
   );
 
   // ── Remove / clear ───────────────────────────────────────────────────────
@@ -143,6 +166,7 @@ export default function HomePage() {
 
   // ── Compress ─────────────────────────────────────────────────────────────
   const handleCompress = useCallback(async () => {
+    if (mode === 'pdf') return;
     const toProcess = files.filter((f) => f.status === 'pending');
     if (toProcess.length === 0 || isProcessing) return;
 
@@ -169,7 +193,7 @@ export default function HomePage() {
 
     setIsProcessing(false);
     setCurrentFileId(null);
-  }, [files, settings, isProcessing]);
+  }, [files, settings, isProcessing, mode]);
 
   // ── Download ─────────────────────────────────────────────────────────────
   const handleDownload = useCallback(async () => {
@@ -187,13 +211,51 @@ export default function HomePage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35 }}
         >
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-foreground flex items-center justify-center">
-              <Zap className="w-3.5 h-3.5 text-background fill-background" />
-            </div>
-            <span className="text-[14px] font-semibold text-foreground tracking-tight">
-              Image Compressor
-            </span>
+          <div className="flex flex-wrap items-center gap-2.5">
+            {([
+              { value: 'image', label: 'Image Compressor', icon: ImageIcon },
+              { value: 'pdf', label: 'PDF Compressor', icon: FileText },
+            ] as const).map((option) => {
+              const active = mode === option.value;
+              const Icon = option.icon;
+              return (
+                <BorderBeam
+                  key={option.value}
+                  size="line"
+                  colorVariant="mono"
+                  theme="dark"
+                  active={active || modeHover === option.value}
+                  className="inline-flex"
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleModeChange(option.value)}
+                    onMouseEnter={() => setModeHover(option.value)}
+                    onMouseLeave={() => setModeHover(null)}
+                    disabled={isProcessing}
+                    className={cn(
+                      'inline-flex items-center gap-2.5 rounded-xl px-3 py-2 transition-colors duration-200',
+                      active
+                        ? 'bg-card text-foreground'
+                        : 'text-muted hover:text-foreground hover:bg-card/70',
+                      isProcessing && 'pointer-events-none opacity-50',
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        'w-7 h-7 rounded-lg flex items-center justify-center transition-colors',
+                        active ? 'bg-foreground text-background' : 'bg-foreground/8 text-foreground',
+                      )}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[14px] font-semibold tracking-tight">
+                      {option.label}
+                    </span>
+                  </button>
+                </BorderBeam>
+              );
+            })}
           </div>
         </motion.header>
 
@@ -204,7 +266,12 @@ export default function HomePage() {
           transition={{ duration: 0.35, delay: 0.08 }}
         >
           <BorderBeam size="md" colorVariant="colorful" theme="dark" strength={0.3} active={beamActive}>
-            <SettingsPanel settings={settings} onChange={setSettings} disabled={isProcessing} />
+            <SettingsPanel
+              mode={mode}
+              settings={settings}
+              onChange={setSettings}
+              disabled={isProcessing || isPdfMode}
+            />
           </BorderBeam>
         </motion.div>
 
@@ -233,21 +300,25 @@ export default function HomePage() {
               transition={{ duration: 0.35, delay: 0.14 }}
             >
               <BorderBeam size="md" colorVariant="colorful" theme="dark" active={isDragging}>
-                <UploadZone onFiles={handleAddFiles} onDragStateChange={setIsDragging} />
+                <UploadZone mode={mode} onFiles={handleAddFiles} onDragStateChange={setIsDragging} />
               </BorderBeam>
             </motion.div>
           ) : (
             <div>
-              {/* Before/after comparison — always shows the first file as the reference.
-                  key forces a remount (and fresh compression) if the first file changes. */}
-              <InlinePreview
-                key={files[0].id}
-                file={files[0]}
-                settings={settings}
-              />
+              {mode === 'image' && (
+                <>
+                  {/* Before/after comparison — always shows the first file as the reference.
+                      key forces a remount (and fresh compression) if the first file changes. */}
+                  <InlinePreview
+                    key={files[0].id}
+                    file={files[0]}
+                    settings={settings}
+                  />
+                </>
+              )}
 
               {/* Compact add-more strip */}
-              <UploadZone onFiles={handleAddFiles} compact disabled={isProcessing} />
+              <UploadZone mode={mode} onFiles={handleAddFiles} compact disabled={isProcessing} />
 
               {/* File grid */}
               <div className="mt-3">
@@ -264,6 +335,7 @@ export default function HomePage() {
               current={processedCount}
               total={files.length}
               currentFile={currentFileName}
+              label={`Compressing ${modeCopy.noun.toLowerCase()}s…`}
             />
           )}
         </AnimatePresence>
@@ -275,6 +347,7 @@ export default function HomePage() {
               count={doneFiles.length}
               originalSize={totalOriginalSize}
               compressedSize={totalCompressedSize}
+              itemLabel={modeCopy.noun.toLowerCase()}
             />
           )}
         </AnimatePresence>
@@ -295,17 +368,19 @@ export default function HomePage() {
                   size="sm"
                   colorVariant="colorful"
                   theme="dark"
-                  active={(btnHover && canCompress) || isProcessing}
+                  active={!isPdfMode && ((btnHover && canCompress) || isProcessing)}
                   className="inline-flex"
                 >
                   <button
                     onClick={handleCompress}
-                    disabled={!canCompress}
+                    disabled={!canCompress || isPdfMode}
                     onMouseEnter={() => setBtnHover(true)}
                     onMouseLeave={() => setBtnHover(false)}
                     className={cn(
                       'inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200',
-                      isProcessing
+                      isPdfMode
+                        ? 'bg-foreground/[0.04] text-muted cursor-not-allowed'
+                        : isProcessing
                         ? 'bg-card text-foreground'
                         : canCompress
                           ? (btnHover
@@ -319,9 +394,11 @@ export default function HomePage() {
                     )}
                     <TextSwap
                       text={
-                        isProcessing
+                        isPdfMode
+                          ? 'PDF compression coming soon'
+                          : isProcessing
                           ? 'Compressing…'
-                          : `Compress ${pendingFiles.length} ${pendingFiles.length === 1 ? 'image' : 'images'}`
+                          : `Compress ${pendingFiles.length} ${pendingFiles.length === 1 ? modeCopy.noun : `${modeCopy.noun}s`}`
                       }
                     />
                   </button>
@@ -359,6 +436,20 @@ export default function HomePage() {
           )}
         </AnimatePresence>
 
+        <AnimatePresence>
+          {mode === 'pdf' && hasFiles && (
+            <motion.p
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              className="mt-3 text-[12px] text-muted"
+            >
+              PDF mode now swaps the full workspace context, file targeting, and iconography. The
+              document compression engine is the next piece to wire up.
+            </motion.p>
+          )}
+        </AnimatePresence>
+
         {/* ── Global drop overlay ───────────────────────────────────────────── */}
         <GlobalDropOverlay onFiles={handleAddFiles} />
 
@@ -370,7 +461,9 @@ export default function HomePage() {
           transition={{ delay: 0.5, duration: 0.5 }}
         >
           <Lock className="w-3 h-3 text-muted" />
-          <span className="text-[12px] text-muted">Files never leave your browser</span>
+          <span className="text-[12px] text-muted">
+            {modeCopy.title} keeps your files in the browser
+          </span>
         </motion.footer>
       </div>
     </main>

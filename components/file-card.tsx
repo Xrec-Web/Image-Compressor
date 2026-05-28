@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, CheckCircle2, AlertCircle, Loader2, ImageIcon } from 'lucide-react';
-import { cn, formatBytes, formatReduction } from '@/lib/utils';
+import { X, CheckCircle2, AlertCircle, Loader2, ImageIcon, FileText } from 'lucide-react';
+import { cn, formatBytes } from '@/lib/utils';
 import type { FileItem } from '@/types';
 
 interface FileCardProps {
@@ -14,6 +14,7 @@ interface FileCardProps {
 
 export default function FileCard({ item, onRemove, index }: FileCardProps) {
   const [isHovered, setIsHovered] = useState(false);
+  const FallbackIcon = item.mode === 'pdf' ? FileText : ImageIcon;
 
   const reduction =
     item.status === 'done' && item.compressedSize !== undefined
@@ -54,7 +55,7 @@ export default function FileCard({ item, onRemove, index }: FileCardProps) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <ImageIcon className="w-5 h-5 text-muted" />
+            <FallbackIcon className="w-5 h-5 text-muted" />
           </div>
         )}
 

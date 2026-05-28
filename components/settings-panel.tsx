@@ -22,7 +22,7 @@ interface SegmentProps<T extends string> {
   disabled?: boolean;
 }
 
-function SegmentedControl<T extends string>({ options, value, onChange, disabled }: SegmentProps<T>) {
+export function SegmentedControl<T extends string>({ options, value, onChange, disabled }: SegmentProps<T>) {
   return (
     <div
       className={cn(
@@ -59,7 +59,7 @@ interface DropdownProps<T extends string> {
   disabled?: boolean;
 }
 
-function CustomDropdown<T extends string>({ options, value, onChange, disabled }: DropdownProps<T>) {
+export function CustomDropdown<T extends string>({ options, value, onChange, disabled }: DropdownProps<T>) {
   const [open, setOpen] = useState(false);
   const [panelStyle, setPanelStyle] = useState<React.CSSProperties>({});
   const [mounted, setMounted] = useState(false);

@@ -1,18 +1,24 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
-import type { FileItem, OutputFormat } from '@/types';
-import { FORMAT_EXT } from '@/types';
+import type { FileItem, OutputFormat, VideoFormat } from '@/types';
+import { FORMAT_EXT, VIDEO_FORMAT_EXT } from '@/types';
 import { getTodayString } from '@/lib/utils';
+
+interface DownloadFormats {
+  imageFormat: OutputFormat;
+  videoFormat: VideoFormat;
+}
 
 /**
  * Download completed files.
  * - 1 file  → direct download with the correct extension, no ZIP wrapper.
  * - 2+ files → bundle into a ZIP with collision-safe filenames.
  */
-export async function downloadAsZip(files: FileItem[], format: OutputFormat): Promise<void> {
+export async function downloadAsZip(files: FileItem[], formats: DownloadFormats): Promise<void> {
   const done = files.filter((f) => f.status === 'done' && f.compressedBlob);
   const mode = done[0]?.mode ?? 'image';
-  const ext = mode === 'pdf' ? 'pdf' : FORMAT_EXT[format];
+  const ext =
+    mode === 'pdf' ? 'pdf' : mode === 'video' ? VIDEO_FORMAT_EXT[formats.videoFormat] : FORMAT_EXT[formats.imageFormat];
 
   // ── Single file: skip the ZIP entirely ──────────────────────────────────
   if (done.length === 1) {
@@ -41,5 +47,6 @@ export async function downloadAsZip(files: FileItem[], format: OutputFormat): Pr
   }
 
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 1 } });
-  saveAs(blob, `compressed-${mode === 'pdf' ? 'pdfs' : 'images'}-${getTodayString()}.zip`);
+  const folderLabel = mode === 'pdf' ? 'pdfs' : mode === 'video' ? 'videos' : 'images';
+  saveAs(blob, `compressed-${folderLabel}-${getTodayString()}.zip`);
 }

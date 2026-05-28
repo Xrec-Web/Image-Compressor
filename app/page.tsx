@@ -3,14 +3,23 @@
 import { useReducer, useState, useCallback, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Lock, Download, RotateCcw, ImageIcon, FileText } from 'lucide-react';
+import { Lock, Download, RotateCcw, ImageIcon, FileText, Video } from 'lucide-react';
 
-import type { CompressionMode, FileItem, Settings, FileStatus } from '@/types';
-import { IMAGE_ACCEPTED_MIME_TYPES } from '@/types';
+import type { CompressionMode, FileItem, Settings, VideoSettings, FileStatus } from '@/types';
+import { IMAGE_ACCEPTED_MIME_TYPES, VIDEO_CRF_RANGE } from '@/types';
 import { compressFile } from '@/lib/compress';
 import { generatePdfThumbnail } from '@/lib/pdf';
+import { compressVideo, preloadFFmpeg } from '@/lib/video';
 import { downloadAsZip } from '@/lib/zip';
-import { generateThumbnail, isHeicFile, isPdfFile, cn, formatBytes } from '@/lib/utils';
+import {
+  generateThumbnail,
+  generateVideoThumbnail,
+  isHeicFile,
+  isPdfFile,
+  isVideoFile,
+  cn,
+  formatBytes,
+} from '@/lib/utils';
 
 // ssr: false prevents the style-tag hydration mismatch BorderBeam causes
 // (server HTML-entity-encodes its injected CSS; client renders raw chars)
@@ -22,6 +31,8 @@ import UploadZone from '@/components/upload-zone';
 import SettingsPanel from '@/components/settings-panel';
 import FileGrid from '@/components/file-grid';
 import InlinePreview from '@/components/inline-preview';
+import VideoSettingsPanel from '@/components/video-settings-panel';
+import VideoPreview from '@/components/video-preview';
 import GlobalDropOverlay from '@/components/global-drop-overlay';
 import TextSwap from '@/components/text-swap';
 import ProgressBanner from '@/components/progress-banner';
@@ -67,7 +78,21 @@ const DEFAULT_SETTINGS: Settings = {
   maxDimension: '1920',
 };
 
+const DEFAULT_VIDEO_SETTINGS: VideoSettings = {
+  format: 'mp4',
+  crf: VIDEO_CRF_RANGE.mp4.default,
+  resolution: '1080',
+  fps: 'original',
+  audioBitrate: '128',
+  faststart: true,
+  stripMetadata: false,
+};
+
 const SIZE_WARNING_THRESHOLD = 200 * 1024 * 1024; // 200 MB
+
+// Maps each mode to its slide-page index for the side-by-side transition.
+const MODE_PAGE: Record<CompressionMode, string> = { image: '1', pdf: '2', video: '3' };
+
 const MODE_COPY: Record<CompressionMode, { title: string; noun: string }> = {
   image: {
     title: 'Image Compressor',
@@ -77,15 +102,21 @@ const MODE_COPY: Record<CompressionMode, { title: string; noun: string }> = {
     title: 'PDF Compressor',
     noun: 'PDF',
   },
+  video: {
+    title: 'Video Compressor',
+    noun: 'video',
+  },
 };
 
 // ── Component ──────────────────────────────────────────────────────────────
 export default function HomePage() {
   const [files, dispatch] = useReducer(fileReducer, []);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [videoSettings, setVideoSettings] = useState<VideoSettings>(DEFAULT_VIDEO_SETTINGS);
   const [mode, setMode] = useState<CompressionMode>('image');
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
+  const [videoProgress, setVideoProgress] = useState(0);
   const [sizeWarning, setSizeWarning] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [btnHover, setBtnHover] = useState(false);
@@ -94,6 +125,7 @@ export default function HomePage() {
   const stopRef = useRef(false);
   const imagePageRef = useRef<HTMLDivElement>(null);
   const pdfPageRef = useRef<HTMLDivElement>(null);
+  const videoPageRef = useRef<HTMLDivElement>(null);
 
   // ── Derived state ────────────────────────────────────────────────────────
   const hasFiles = files.length > 0;
@@ -114,7 +146,7 @@ export default function HomePage() {
   const totalCompressedSize = doneFiles.reduce((acc, f) => acc + (f.compressedSize ?? 0), 0);
 
   useEffect(() => {
-    const activeRef = mode === 'image' ? imagePageRef : pdfPageRef;
+    const activeRef = mode === 'image' ? imagePageRef : mode === 'pdf' ? pdfPageRef : videoPageRef;
     const element = activeRef.current;
     if (!element) return;
 
@@ -135,17 +167,32 @@ export default function HomePage() {
     pendingFiles.length,
     processedCount,
     settings,
+    videoSettings,
   ]);
 
-  const renderModeBody = (pageMode: CompressionMode) => (
+  const renderModeBody = (pageMode: CompressionMode) => {
+    const isVideo = pageMode === 'video';
+    const sizeWarningLabel = isVideo
+      ? 'Total source size exceeds 200 MB — in-browser video encoding may be slow or run out of memory.'
+      : 'Total source size exceeds 200 MB — large batches may be slow or run out of browser memory.';
+
+    return (
     <>
       <BorderBeam size="md" colorVariant="colorful" theme="dark" strength={0.3} active={pageMode === mode && beamActive}>
-        <SettingsPanel
-          mode={pageMode}
-          settings={settings}
-          onChange={setSettings}
-          disabled={isProcessing || pageMode !== mode}
-        />
+        {isVideo ? (
+          <VideoSettingsPanel
+            settings={videoSettings}
+            onChange={setVideoSettings}
+            disabled={isProcessing || pageMode !== mode}
+          />
+        ) : (
+          <SettingsPanel
+            mode={pageMode}
+            settings={settings}
+            onChange={setSettings}
+            disabled={isProcessing || pageMode !== mode}
+          />
+        )}
       </BorderBeam>
 
       <AnimatePresence>
@@ -157,7 +204,7 @@ export default function HomePage() {
             className="mt-3 overflow-hidden"
           >
             <p className="text-[12px] text-amber-300 bg-amber-950/40 border border-amber-800/40 rounded-lg px-3 py-2">
-              Total source size exceeds 200 MB — large batches may be slow or run out of browser memory.
+              {sizeWarningLabel}
             </p>
           </motion.div>
         )}
@@ -181,11 +228,19 @@ export default function HomePage() {
           </motion.div>
         ) : (
           <div>
-            <InlinePreview
-              key={`${pageMode}-${files[0].id}`}
-              file={files[0]}
-              settings={settings}
-            />
+            {isVideo ? (
+              <VideoPreview
+                key={`${pageMode}-${files[0].id}`}
+                file={files[0]}
+                settings={videoSettings}
+              />
+            ) : (
+              <InlinePreview
+                key={`${pageMode}-${files[0].id}`}
+                file={files[0]}
+                settings={settings}
+              />
+            )}
 
             <UploadZone
               mode={pageMode}
@@ -201,7 +256,8 @@ export default function HomePage() {
         )}
       </div>
     </>
-  );
+    );
+  };
 
   const handleModeChange = useCallback((nextMode: CompressionMode) => {
     if (nextMode === mode || isProcessing) return;
@@ -213,13 +269,17 @@ export default function HomePage() {
   // ── Add files ────────────────────────────────────────────────────────────
   const handleAddFiles = useCallback(
     async (newFiles: File[]) => {
-      const accepted = newFiles.filter(
-        (f) =>
-          mode === 'pdf'
-            ? isPdfFile(f)
+      const accepted = newFiles.filter((f) =>
+        mode === 'pdf'
+          ? isPdfFile(f)
+          : mode === 'video'
+            ? isVideoFile(f)
             : IMAGE_ACCEPTED_MIME_TYPES.includes(f.type) || isHeicFile(f),
       );
       if (accepted.length === 0) return;
+
+      // Start warming the ~31 MB ffmpeg.wasm engine the moment a video is queued.
+      if (mode === 'video') preloadFFmpeg();
 
       // Size warning
       const totalExisting = files.reduce((acc, f) => acc + f.originalSize, 0);
@@ -237,7 +297,12 @@ export default function HomePage() {
           mode,
           name: file.name,
           originalSize: file.size,
-          thumbnail: mode === 'image' ? await generateThumbnail(file) : await generatePdfThumbnail(file),
+          thumbnail:
+            mode === 'image'
+              ? await generateThumbnail(file)
+              : mode === 'pdf'
+                ? await generatePdfThumbnail(file)
+                : await generateVideoThumbnail(file),
           status: 'pending' as FileStatus,
         })),
       );
@@ -269,10 +334,14 @@ export default function HomePage() {
       if (stopRef.current) break;
 
       setCurrentFileId(item.id);
+      setVideoProgress(0);
       dispatch({ type: 'SET_STATUS', id: item.id, status: 'processing' });
 
       try {
-        const compressed = await compressFile(item.file, settings);
+        const compressed =
+          item.mode === 'video'
+            ? await compressVideo(item.file, videoSettings, setVideoProgress)
+            : await compressFile(item.file, settings);
         dispatch({ type: 'SET_RESULT', id: item.id, blob: compressed, size: compressed.size });
       } catch (err) {
         dispatch({
@@ -285,12 +354,13 @@ export default function HomePage() {
 
     setIsProcessing(false);
     setCurrentFileId(null);
-  }, [files, settings, isProcessing]);
+    setVideoProgress(0);
+  }, [files, settings, videoSettings, isProcessing]);
 
   // ── Download ─────────────────────────────────────────────────────────────
   const handleDownload = useCallback(async () => {
-    await downloadAsZip(files, settings.format);
-  }, [files, settings.format]);
+    await downloadAsZip(files, { imageFormat: settings.format, videoFormat: videoSettings.format });
+  }, [files, settings.format, videoSettings.format]);
 
   return (
     <main className="min-h-screen bg-background pb-20">
@@ -307,6 +377,7 @@ export default function HomePage() {
             {([
               { value: 'image', label: 'Image Compressor', icon: ImageIcon },
               { value: 'pdf', label: 'PDF Compressor', icon: FileText },
+              { value: 'video', label: 'Video Compressor', icon: Video },
             ] as const).map((option) => {
               const active = mode === option.value;
               const Icon = option.icon;
@@ -359,7 +430,7 @@ export default function HomePage() {
         >
           <div
             className="t-page-slide"
-            data-page={mode === 'image' ? '1' : '2'}
+            data-page={MODE_PAGE[mode]}
             style={{
               height: modePanelHeight ?? undefined,
               transition: 'height var(--page-slide-dur) var(--page-slide-ease)',
@@ -375,6 +446,11 @@ export default function HomePage() {
                 {renderModeBody('pdf')}
               </div>
             </section>
+            <section className="t-page" data-page-id="3">
+              <div ref={videoPageRef}>
+                {renderModeBody('video')}
+              </div>
+            </section>
           </div>
         </motion.div>
 
@@ -386,6 +462,7 @@ export default function HomePage() {
               total={files.length}
               currentFile={currentFileName}
               label={`Compressing ${modeCopy.noun.toLowerCase()}s…`}
+              subProgress={mode === 'video' ? videoProgress : undefined}
             />
           )}
         </AnimatePresence>
@@ -483,7 +560,7 @@ export default function HomePage() {
         </AnimatePresence>
 
         {/* ── Global drop overlay ───────────────────────────────────────────── */}
-        <GlobalDropOverlay onFiles={handleAddFiles} />
+        <GlobalDropOverlay onFiles={handleAddFiles} mode={mode} />
 
         {/* ── Footer ────────────────────────────────────────────────────────── */}
         <motion.footer

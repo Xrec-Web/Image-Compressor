@@ -9,6 +9,8 @@ interface ProgressBannerProps {
   total: number;
   currentFile?: string;
   label?: string;
+  /** 0–1 progress within the file currently being processed (used for slow video encodes). */
+  subProgress?: number;
 }
 
 export default function ProgressBanner({
@@ -16,8 +18,11 @@ export default function ProgressBanner({
   total,
   currentFile,
   label = 'Compressing…',
+  subProgress,
 }: ProgressBannerProps) {
-  const pct = total > 0 ? (current / total) * 100 : 0;
+  const sub = subProgress != null ? Math.min(1, Math.max(0, subProgress)) : 0;
+  const pct = total > 0 ? ((current + sub) / total) * 100 : 0;
+  const showSubPct = subProgress != null && sub > 0 && sub < 1;
 
   return (
     <motion.div
@@ -42,6 +47,7 @@ export default function ProgressBanner({
 
         {/* Number pop-in on the live counter */}
         <span className="font-mono text-[12px] text-muted inline-flex items-center gap-[2px]">
+          {showSubPct && <span className="mr-1.5 text-foreground/80">{Math.round(sub * 100)}%</span>}
           <DigitCount value={current} />
           <span className="mx-0.5 opacity-50">/</span>
           <DigitCount value={total} />

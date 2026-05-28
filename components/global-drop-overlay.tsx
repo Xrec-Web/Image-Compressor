@@ -11,14 +11,24 @@ const BorderBeam = dynamic(
   { ssr: false },
 );
 
+import type { CompressionMode } from '@/types';
+
 interface GlobalDropOverlayProps {
   onFiles: (files: File[]) => void;
+  mode?: CompressionMode;
 }
 
 const isFileDrag = (e: DragEvent) =>
   Array.from(e.dataTransfer?.types ?? []).includes('Files');
 
-export default function GlobalDropOverlay({ onFiles }: GlobalDropOverlayProps) {
+const DROP_COPY: Record<CompressionMode, { title: string; types: string }> = {
+  image: { title: 'Drop images anywhere', types: 'JPG · PNG · WebP · AVIF · HEIC' },
+  pdf: { title: 'Drop PDFs anywhere', types: 'PDF' },
+  video: { title: 'Drop videos anywhere', types: 'MP4 · WebM · MOV · MKV · AVI' },
+};
+
+export default function GlobalDropOverlay({ onFiles, mode = 'image' }: GlobalDropOverlayProps) {
+  const copy = DROP_COPY[mode];
   const [active, setActive] = useState(false);
   const counter = useRef(0);
 
@@ -108,10 +118,10 @@ export default function GlobalDropOverlay({ onFiles }: GlobalDropOverlayProps) {
 
               <div className="text-center">
                 <p className="text-white/90 text-[15px] font-medium tracking-tight">
-                  Drop images anywhere
+                  {copy.title}
                 </p>
                 <p className="text-white/35 text-[11px] mt-1 font-mono tracking-wider">
-                  JPG · PNG · WebP · AVIF · HEIC
+                  {copy.types}
                 </p>
               </div>
             </motion.div>

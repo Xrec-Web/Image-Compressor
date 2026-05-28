@@ -227,6 +227,15 @@ body::after {
 .t-page-slide .t-page[data-page-id="2"] {
   --t-page-from-x: var(--page-slide-distance);
 }
+.t-page-slide .t-page[data-page-id="3"] {
+  --t-page-from-x: var(--page-slide-distance);
+}
+/* Pages to the left of the active one slide in from the left instead. */
+.t-page-slide[data-page="3"] .t-page[data-page-id="2"],
+.t-page-slide[data-page="2"] .t-page[data-page-id="1"],
+.t-page-slide[data-page="3"] .t-page[data-page-id="1"] {
+  --t-page-from-x: calc(var(--page-slide-distance) * -1);
+}
 .t-page-slide .t-page {
   position: absolute;
   inset: 0;
@@ -241,7 +250,8 @@ body::after {
   will-change: opacity, transform, filter;
 }
 .t-page-slide[data-page="1"] .t-page[data-page-id="1"],
-.t-page-slide[data-page="2"] .t-page[data-page-id="2"] {
+.t-page-slide[data-page="2"] .t-page[data-page-id="2"],
+.t-page-slide[data-page="3"] .t-page[data-page-id="3"] {
   opacity: 1;
   pointer-events: auto;
   transform: translateX(0);

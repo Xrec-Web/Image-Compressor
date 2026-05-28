@@ -5,7 +5,12 @@ import { motion } from 'framer-motion';
 import { Upload, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CompressionMode } from '@/types';
-import { IMAGE_ACCEPTED_MIME_TYPES, PDF_ACCEPTED_MIME_TYPES } from '@/types';
+import {
+  IMAGE_ACCEPTED_MIME_TYPES,
+  PDF_ACCEPTED_MIME_TYPES,
+  VIDEO_ACCEPTED_MIME_TYPES,
+  VIDEO_ACCEPTED_EXTENSIONS,
+} from '@/types';
 
 interface UploadZoneProps {
   onFiles: (files: File[]) => void;
@@ -27,7 +32,9 @@ export default function UploadZone({
   const acceptString =
     mode === 'pdf'
       ? PDF_ACCEPTED_MIME_TYPES.join(',') + ',.pdf'
-      : IMAGE_ACCEPTED_MIME_TYPES.join(',') + ',.heic,.heif';
+      : mode === 'video'
+        ? VIDEO_ACCEPTED_MIME_TYPES.join(',') + ',' + VIDEO_ACCEPTED_EXTENSIONS.join(',')
+        : IMAGE_ACCEPTED_MIME_TYPES.join(',') + ',.heic,.heif';
 
   const setDrag = useCallback((val: boolean) => {
     setIsDraggingOver(val);
@@ -133,7 +140,13 @@ export default function UploadZone({
 
       {/* Copy */}
       <p className="text-[15px] font-medium text-foreground tracking-tight mb-1.5">
-        {isDraggingOver ? 'Drop to add' : mode === 'pdf' ? 'Drop some PDFs.' : 'Drop some images.'}
+        {isDraggingOver
+          ? 'Drop to add'
+          : mode === 'pdf'
+            ? 'Drop some PDFs.'
+            : mode === 'video'
+              ? 'Drop some videos.'
+              : 'Drop some images.'}
       </p>
       <p className="text-sm text-muted text-center leading-relaxed">
         or{' '}
@@ -141,7 +154,7 @@ export default function UploadZone({
           click to browse
         </span>
         {' · '}
-        {mode === 'pdf' ? 'PDF' : 'JPG, PNG, WebP, AVIF, HEIC'}
+        {mode === 'pdf' ? 'PDF' : mode === 'video' ? 'MP4, WebM, MOV, MKV, AVI' : 'JPG, PNG, WebP, AVIF, HEIC'}
       </p>
     </div>
   );

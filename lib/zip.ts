@@ -11,7 +11,8 @@ import { getTodayString } from '@/lib/utils';
  */
 export async function downloadAsZip(files: FileItem[], format: OutputFormat): Promise<void> {
   const done = files.filter((f) => f.status === 'done' && f.compressedBlob);
-  const ext = FORMAT_EXT[format];
+  const mode = done[0]?.mode ?? 'image';
+  const ext = mode === 'pdf' ? 'pdf' : FORMAT_EXT[format];
 
   // ── Single file: skip the ZIP entirely ──────────────────────────────────
   if (done.length === 1) {
@@ -40,5 +41,5 @@ export async function downloadAsZip(files: FileItem[], format: OutputFormat): Pr
   }
 
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 1 } });
-  saveAs(blob, `compressed-images-${getTodayString()}.zip`);
+  saveAs(blob, `compressed-${mode === 'pdf' ? 'pdfs' : 'images'}-${getTodayString()}.zip`);
 }

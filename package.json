@@ -19,6 +19,8 @@
     "jszip": "^3.10.1",
     "lucide-react": "^0.468.0",
     "next": "^14.2.29",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.7.284",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.5.4"

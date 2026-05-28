@@ -20,6 +20,8 @@ export default function FileCard({ item, onRemove, index }: FileCardProps) {
     item.status === 'done' && item.compressedSize !== undefined
       ? Math.round(((item.originalSize - item.compressedSize) / item.originalSize) * 100)
       : null;
+  const reductionLabel =
+    reduction == null ? null : reduction > 0 ? `−${reduction}%` : reduction < 0 ? `+${Math.abs(reduction)}%` : '0%';
 
   return (
     <motion.div
@@ -94,16 +96,16 @@ export default function FileCard({ item, onRemove, index }: FileCardProps) {
                 <span className="font-mono text-[11px] text-foreground font-medium">
                   {formatBytes(item.compressedSize)}
                 </span>
-                {reduction !== null && (
+                {reductionLabel && (
                   <span
                     className={cn(
                       'font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded-full',
-                      reduction > 0
+                      (reduction ?? 0) > 0
                         ? 'text-success bg-success/10'
                         : 'text-muted bg-foreground/5',
                     )}
                   >
-                    −{reduction}%
+                    {reductionLabel}
                   </span>
                 )}
               </motion.div>

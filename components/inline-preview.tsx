@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { compressFile } from '@/lib/compress';
+import { renderPdfPreview } from '@/lib/pdf';
 import { formatBytes, isHeicFile } from '@/lib/utils';
 import type { FileItem, Settings } from '@/types';
 import ComparisonSlider from '@/components/comparison-slider';
@@ -13,15 +14,14 @@ interface InlinePreviewProps {
 
 export default function InlinePreview({ file, settings }: InlinePreviewProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const isPdf = file.mode === 'pdf';
 
-  // Full-quality original URL — created once per file (key prop handles file changes)
-  const [beforeUrl] = useState<string>(() =>
-    isHeicFile(file.file) ? file.thumbnail : URL.createObjectURL(file.file),
+  const [beforeUrl, setBeforeUrl] = useState<string | null>(
+    isPdf ? null : isHeicFile(file.file) ? file.thumbnail : URL.createObjectURL(file.file),
   );
-
   const [afterUrl, setAfterUrl] = useState<string | null>(null);
   const [compressedSize, setCompressedSize] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(isPdf);
 
   const genRef = useRef(0);
   const afterUrlRef = useRef<string | null>(null);
@@ -47,9 +47,16 @@ export default function InlinePreview({ file, settings }: InlinePreviewProps) {
         const blob = await compressFile(file.file, s);
         if (genRef.current !== gen) return;
         if (afterUrlRef.current) URL.revokeObjectURL(afterUrlRef.current);
-        const url = URL.createObjectURL(blob);
-        afterUrlRef.current = url;
-        setAfterUrl(url);
+
+        if (isPdf) {
+          afterUrlRef.current = null;
+          setAfterUrl(await renderPdfPreview(blob));
+        } else {
+          const url = URL.createObjectURL(blob);
+          afterUrlRef.current = url;
+          setAfterUrl(url);
+        }
+
         setCompressedSize(blob.size);
       } catch {
         // silently fail — loading indicator stays until resolved
@@ -57,14 +64,31 @@ export default function InlinePreview({ file, settings }: InlinePreviewProps) {
         if (genRef.current === gen) setIsLoading(false);
       }
     },
-    [file.file],
+    [file.file, isPdf],
   );
 
-  // Initial compression on mount
+  // Initial preview + compression on mount
   useEffect(() => {
-    runCompress(settings);
+    let cancelled = false;
+
+    async function setup() {
+      if (isPdf) {
+        try {
+          const preview = await renderPdfPreview(file.file);
+          if (!cancelled) setBeforeUrl(preview);
+        } catch {
+          if (!cancelled) setBeforeUrl(file.thumbnail || null);
+        }
+      }
+
+      runCompress(settings);
+    }
+
+    setup();
+
     return () => {
-      if (!isHeicFile(file.file)) URL.revokeObjectURL(beforeUrl);
+      cancelled = true;
+      if (beforeUrl && !isHeicFile(file.file) && !isPdf) URL.revokeObjectURL(beforeUrl);
       if (afterUrlRef.current) URL.revokeObjectURL(afterUrlRef.current);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -83,6 +107,8 @@ export default function InlinePreview({ file, settings }: InlinePreviewProps) {
     compressedSize != null
       ? Math.round(((file.originalSize - compressedSize) / file.originalSize) * 100)
       : null;
+  const beforeLabel = isPdf ? 'Original PDF' : 'Original';
+  const afterLabel = isPdf ? `PDF · ${settings.quality}` : `${settings.format.toUpperCase()} · ${settings.quality}`;
 
   return (
     // data-open starts false; the useEffect flips it to true to fire the panel reveal.
@@ -116,17 +142,19 @@ export default function InlinePreview({ file, settings }: InlinePreviewProps) {
         </div>
 
         {/* Comparison slider */}
-        <ComparisonSlider
-          before={beforeUrl}
-          after={afterUrl}
-          isLoading={isLoading}
-          beforeLabel="Original"
-          afterLabel={`${settings.format.toUpperCase()} · ${settings.quality}`}
-          beforeSize={formatBytes(file.originalSize)}
-          afterSize={compressedSize != null ? formatBytes(compressedSize) : undefined}
-          reduction={reduction}
-          maxHeight={280}
-        />
+        {beforeUrl && (
+          <ComparisonSlider
+            before={beforeUrl}
+            after={afterUrl}
+            isLoading={isLoading}
+            beforeLabel={beforeLabel}
+            afterLabel={afterLabel}
+            beforeSize={formatBytes(file.originalSize)}
+            afterSize={compressedSize != null ? formatBytes(compressedSize) : undefined}
+            reduction={reduction}
+            maxHeight={280}
+          />
+        )}
       </div>
     </div>
   );

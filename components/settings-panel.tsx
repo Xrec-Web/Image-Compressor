@@ -215,27 +215,31 @@ export default function SettingsPanel({
         <div className="w-px h-5 bg-border hidden sm:block" />
 
         <div className="flex items-center gap-2.5">
-          <span className="text-xs font-medium text-muted uppercase tracking-widest whitespace-nowrap">Mode</span>
-          <div className="inline-flex rounded-md border border-border overflow-hidden">
-            <span className="px-3.5 py-1.5 text-[13px] font-medium leading-none bg-transparent text-foreground">
-              Document compression
-            </span>
-          </div>
+          <span className="text-xs font-medium text-muted uppercase tracking-widest whitespace-nowrap">Quality</span>
+          <SegmentedControl<QualityPreset>
+            options={QUALITY_OPTIONS}
+            value={settings.quality}
+            onChange={(quality) => onChange({ ...settings, quality })}
+            disabled={disabled}
+          />
         </div>
 
         <div className="w-px h-5 bg-border hidden sm:block" />
 
         <div className="flex items-center gap-2.5">
-          <span className="text-xs font-medium text-muted uppercase tracking-widest whitespace-nowrap">Input</span>
-          <div className="inline-flex rounded-md border border-border overflow-hidden">
-            <span className="px-3.5 py-1.5 text-[13px] font-medium leading-none bg-transparent text-foreground">
-              PDF only
-            </span>
-          </div>
+          <span className="text-xs font-medium text-muted uppercase tracking-widest whitespace-nowrap">Max size</span>
+          <CustomDropdown<MaxDimension>
+            options={DIMENSION_OPTIONS}
+            value={settings.maxDimension}
+            onChange={(maxDimension) => onChange({ ...settings, maxDimension })}
+            disabled={disabled}
+          />
         </div>
 
         <p className="ml-auto text-xs text-muted hidden lg:block">
-          PDF mode now swaps the workflow context and upload targeting.
+          {settings.quality === 'high' && 'higher fidelity pages · larger files'}
+          {settings.quality === 'balanced' && 'best balance for mixed documents'}
+          {settings.quality === 'small' && 'stronger compression · softer detail'}
         </p>
       </div>
     );

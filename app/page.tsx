@@ -8,6 +8,7 @@ import { Lock, Download, RotateCcw, ImageIcon, FileText } from 'lucide-react';
 import type { CompressionMode, FileItem, Settings, FileStatus } from '@/types';
 import { IMAGE_ACCEPTED_MIME_TYPES } from '@/types';
 import { compressFile } from '@/lib/compress';
+import { generatePdfThumbnail } from '@/lib/pdf';
 import { downloadAsZip } from '@/lib/zip';
 import { generateThumbnail, isHeicFile, isPdfFile, cn, formatBytes } from '@/lib/utils';
 
@@ -102,7 +103,6 @@ export default function HomePage() {
   const canDownload = allFinished && doneFiles.length > 0;
   const currentFileName = files.find((f) => f.id === currentFileId)?.name;
   const modeCopy = MODE_COPY[mode];
-  const isPdfMode = mode === 'pdf';
 
   // Beam is active during dragging, compressing, or ready to download
   const beamActive = isDragging || isProcessing || canDownload;
@@ -144,7 +144,7 @@ export default function HomePage() {
           mode,
           name: file.name,
           originalSize: file.size,
-          thumbnail: mode === 'image' ? await generateThumbnail(file) : '',
+          thumbnail: mode === 'image' ? await generateThumbnail(file) : await generatePdfThumbnail(file),
           status: 'pending' as FileStatus,
         })),
       );
@@ -166,7 +166,6 @@ export default function HomePage() {
 
   // ── Compress ─────────────────────────────────────────────────────────────
   const handleCompress = useCallback(async () => {
-    if (mode === 'pdf') return;
     const toProcess = files.filter((f) => f.status === 'pending');
     if (toProcess.length === 0 || isProcessing) return;
 
@@ -193,7 +192,7 @@ export default function HomePage() {
 
     setIsProcessing(false);
     setCurrentFileId(null);
-  }, [files, settings, isProcessing, mode]);
+  }, [files, settings, isProcessing]);
 
   // ── Download ─────────────────────────────────────────────────────────────
   const handleDownload = useCallback(async () => {
@@ -270,7 +269,7 @@ export default function HomePage() {
               mode={mode}
               settings={settings}
               onChange={setSettings}
-              disabled={isProcessing || isPdfMode}
+              disabled={isProcessing}
             />
           </BorderBeam>
         </motion.div>
@@ -305,17 +304,13 @@ export default function HomePage() {
             </motion.div>
           ) : (
             <div>
-              {mode === 'image' && (
-                <>
-                  {/* Before/after comparison — always shows the first file as the reference.
-                      key forces a remount (and fresh compression) if the first file changes. */}
-                  <InlinePreview
-                    key={files[0].id}
-                    file={files[0]}
-                    settings={settings}
-                  />
-                </>
-              )}
+              {/* Before/after comparison — always shows the first file as the reference.
+                  key forces a remount (and fresh compression) if the first file changes. */}
+              <InlinePreview
+                key={files[0].id}
+                file={files[0]}
+                settings={settings}
+              />
 
               {/* Compact add-more strip */}
               <UploadZone mode={mode} onFiles={handleAddFiles} compact disabled={isProcessing} />
@@ -368,19 +363,17 @@ export default function HomePage() {
                   size="sm"
                   colorVariant="colorful"
                   theme="dark"
-                  active={!isPdfMode && ((btnHover && canCompress) || isProcessing)}
+                  active={(btnHover && canCompress) || isProcessing}
                   className="inline-flex"
                 >
                   <button
                     onClick={handleCompress}
-                    disabled={!canCompress || isPdfMode}
+                    disabled={!canCompress}
                     onMouseEnter={() => setBtnHover(true)}
                     onMouseLeave={() => setBtnHover(false)}
                     className={cn(
                       'inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200',
-                      isPdfMode
-                        ? 'bg-foreground/[0.04] text-muted cursor-not-allowed'
-                        : isProcessing
+                      isProcessing
                         ? 'bg-card text-foreground'
                         : canCompress
                           ? (btnHover
@@ -394,9 +387,7 @@ export default function HomePage() {
                     )}
                     <TextSwap
                       text={
-                        isPdfMode
-                          ? 'PDF compression coming soon'
-                          : isProcessing
+                        isProcessing
                           ? 'Compressing…'
                           : `Compress ${pendingFiles.length} ${pendingFiles.length === 1 ? modeCopy.noun : `${modeCopy.noun}s`}`
                       }
@@ -412,7 +403,7 @@ export default function HomePage() {
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-[13px] font-semibold bg-foreground text-background hover:bg-foreground/85 active:scale-[0.98] transition-all duration-150"
                 >
                   <Download className="w-3.5 h-3.5" />
-                  {doneFiles.length === 1 ? 'Download image' : 'Download ZIP'}
+                  {doneFiles.length === 1 ? `Download ${modeCopy.noun}` : 'Download ZIP'}
                   <span className="font-mono text-[11px] opacity-60 ml-0.5">
                     ({formatBytes(totalCompressedSize)})
                   </span>
@@ -433,20 +424,6 @@ export default function HomePage() {
                 Clear all
               </button>
             </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {mode === 'pdf' && hasFiles && (
-            <motion.p
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              className="mt-3 text-[12px] text-muted"
-            >
-              PDF mode now swaps the full workspace context, file targeting, and iconography. The
-              document compression engine is the next piece to wire up.
-            </motion.p>
           )}
         </AnimatePresence>
 

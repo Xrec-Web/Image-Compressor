@@ -2,6 +2,7 @@ import imageCompression from 'browser-image-compression';
 import type { Settings } from '@/types';
 import { QUALITY_VALUES, DIMENSION_VALUES, FORMAT_MIME } from '@/types';
 import { isHeicFile } from '@/lib/utils';
+import { compressPdfFile } from '@/lib/pdf';
 
 // Cached AVIF encoder — avoids re-loading WASM on every file
 let _avifEncode: ((imageData: ImageData, opts?: { quality?: number; speed?: number }) => Promise<ArrayBuffer>) | null = null;
@@ -59,6 +60,13 @@ async function getImageData(source: Blob, maxDimension: number | undefined): Pro
  * Sequential-safe: no Web Workers, no parallelism.
  */
 export async function compressFile(file: File, settings: Settings): Promise<Blob> {
+  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+    return compressPdfFile(file, {
+      quality: settings.quality,
+      maxDimension: settings.maxDimension,
+    });
+  }
+
   const quality = QUALITY_VALUES[settings.quality];
   const maxDimension = DIMENSION_VALUES[settings.maxDimension];
 

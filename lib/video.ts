@@ -22,6 +22,9 @@ let activeProgressCb: ((ratio: number) => void) | null = null;
 // report whichever source is further along.
 let jobDurationSec = 0; // total input duration, learned from the first log line
 let jobLastRatio = 0; // highest ratio reported so far (progress only moves forward)
+// Ring buffer of recent log lines so a failure can report what ffmpeg actually said.
+const jobLog: string[] = [];
+const LOG_TAIL = 40;
 
 function reportRatio(ratio: number): void {
   const clamped = Math.min(1, Math.max(0, ratio));
@@ -39,6 +42,9 @@ function parseTimestamp(ts: string): number {
 
 /** Pull progress signals out of an ffmpeg log line. */
 function handleLogLine(message: string): void {
+  jobLog.push(message);
+  if (jobLog.length > LOG_TAIL) jobLog.shift();
+
   // Total duration is printed once near the start.
   if (jobDurationSec === 0) {
     const dur = message.match(/Duration:\s*(\d+:\d{2}:\d{2}\.\d+)/);
@@ -153,12 +159,11 @@ function buildArgs(inputName: string, outputName: string, settings: VideoSetting
     args.push('-c:v', 'libx264', '-crf', String(crf), '-preset', 'veryfast', '-pix_fmt', 'yuv420p');
   } else {
     // VP9 constant-quality: -b:v 0 switches libvpx-vp9 into pure CRF mode.
-    // libvpx-vp9 is very slow in wasm — cpu-used 4 + row/tile threading keeps
-    // it from appearing frozen on large/4K sources.
+    // libvpx-vp9 is very slow in wasm — cpu-used 4 + row-mt keeps it from
+    // appearing frozen on large/4K sources without risking tile-size errors.
     args.push(
       '-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0',
-      '-deadline', 'good', '-cpu-used', '4',
-      '-row-mt', '1', '-tile-columns', '2', '-threads', '4',
+      '-deadline', 'good', '-cpu-used', '4', '-row-mt', '1',
     );
   }
 
@@ -197,9 +202,16 @@ export async function compressVideo(
     activeProgressCb = onProgress ?? null;
     jobDurationSec = 0;
     jobLastRatio = 0;
+    jobLog.length = 0;
     try {
       await ffmpeg.writeFile(inputName, await fetchFile(file));
-      await ffmpeg.exec(buildArgs(inputName, outputName, settings));
+
+      // exec resolves with ffmpeg's exit code; non-zero means the encode failed
+      // (e.g. an unsupported codec in this core build) — it does NOT throw.
+      const code = await ffmpeg.exec(buildArgs(inputName, outputName, settings));
+      if (code !== 0) {
+        throw new Error(describeFailure(code));
+      }
 
       const data = await ffmpeg.readFile(outputName);
       // Copy into a fresh ArrayBuffer-backed array: the MT core hands back a
@@ -212,10 +224,47 @@ export async function compressVideo(
       await ffmpeg.deleteFile(inputName).catch(() => {});
       await ffmpeg.deleteFile(outputName).catch(() => {});
 
+      if (bytes.byteLength === 0) {
+        throw new Error(describeFailure(0, 'ffmpeg produced an empty file'));
+      }
+
       onProgress?.(1);
       return new Blob([bytes], { type: VIDEO_FORMAT_MIME[settings.format] });
+    } catch (err) {
+      // Normalize anything ffmpeg.wasm throws (numbers, strings, undefined)
+      // into an Error carrying the most useful detail we have.
+      if (err instanceof Error) throw err;
+      throw new Error(describeFailure(typeof err === 'number' ? err : undefined, String(err)));
     } finally {
       activeProgressCb = null;
     }
   });
+}
+
+/**
+ * Build a human-readable failure message from the captured ffmpeg log tail,
+ * picking out the line that most likely explains the failure.
+ */
+function describeFailure(code?: number, fallback?: string): string {
+  const tail = jobLog.join('\n');
+  if (process.env.NODE_ENV !== 'production' && tail) {
+    console.error('[video] ffmpeg failed. Log tail:\n' + tail);
+  }
+
+  const interesting = [...jobLog].reverse().find((l) =>
+    /unknown encoder|not found|no such|invalid|unsupported|error|cannot|failed|out of memory|memory access/i.test(l),
+  );
+
+  if (interesting) {
+    if (/unknown encoder/i.test(interesting)) {
+      return `This build of ffmpeg can't encode that format (${interesting.trim()}). Try the other output format.`;
+    }
+    if (/out of memory|memory access|abort/i.test(interesting)) {
+      return 'Ran out of memory while encoding. Try a smaller resolution or a shorter clip.';
+    }
+    return interesting.trim();
+  }
+
+  if (fallback) return fallback;
+  return code != null ? `ffmpeg exited with code ${code}` : 'Compression failed';
 }

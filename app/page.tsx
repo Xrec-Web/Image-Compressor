@@ -278,7 +278,8 @@ export default function HomePage() {
   };
 
   const handleModeChange = useCallback((nextMode: CompressionMode) => {
-    if (nextMode === mode || isProcessing) return;
+    // Video is disabled ("coming soon") for now.
+    if (nextMode === 'video' || nextMode === mode || isProcessing) return;
     setMode(nextMode);
     setSizeWarning(false);
     dispatch({ type: 'CLEAR_ALL' });
@@ -398,12 +399,35 @@ export default function HomePage() {
         >
           <div className="flex flex-wrap items-center gap-2.5">
             {([
-              { value: 'image', label: 'Image Compressor', icon: ImageIcon },
-              { value: 'pdf', label: 'PDF Compressor', icon: FileText },
-              { value: 'video', label: 'Video Compressor', icon: Video },
+              { value: 'image', label: 'Image Compressor', icon: ImageIcon, comingSoon: false },
+              { value: 'pdf', label: 'PDF Compressor', icon: FileText, comingSoon: false },
+              { value: 'video', label: 'Video Compressor', icon: Video, comingSoon: true },
             ] as const).map((option) => {
               const active = mode === option.value;
               const Icon = option.icon;
+
+              // Disabled "coming soon" tabs render flat — no beam, no hover, no click.
+              if (option.comingSoon) {
+                return (
+                  <div
+                    key={option.value}
+                    aria-disabled
+                    title="Coming soon"
+                    className="inline-flex items-center gap-2.5 rounded-xl px-3 py-2 cursor-not-allowed opacity-45 select-none"
+                  >
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-foreground/8 text-muted">
+                      <Icon className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[14px] font-semibold tracking-tight text-muted">
+                      {option.label}
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted bg-foreground/10 rounded-full px-2 py-0.5">
+                      Soon
+                    </span>
+                  </div>
+                );
+              }
+
               return (
                 <BorderBeam
                   key={option.value}

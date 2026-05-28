@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useState, useCallback, useRef } from 'react';
+import { useReducer, useState, useCallback, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Download, RotateCcw, ImageIcon, FileText } from 'lucide-react';
@@ -90,7 +90,10 @@ export default function HomePage() {
   const [isDragging, setIsDragging] = useState(false);
   const [btnHover, setBtnHover] = useState(false);
   const [modeHover, setModeHover] = useState<CompressionMode | null>(null);
+  const [modePanelHeight, setModePanelHeight] = useState<number | null>(null);
   const stopRef = useRef(false);
+  const imagePageRef = useRef<HTMLDivElement>(null);
+  const pdfPageRef = useRef<HTMLDivElement>(null);
 
   // ── Derived state ────────────────────────────────────────────────────────
   const hasFiles = files.length > 0;
@@ -109,6 +112,96 @@ export default function HomePage() {
 
   const totalOriginalSize = doneFiles.reduce((acc, f) => acc + f.originalSize, 0);
   const totalCompressedSize = doneFiles.reduce((acc, f) => acc + (f.compressedSize ?? 0), 0);
+
+  useEffect(() => {
+    const activeRef = mode === 'image' ? imagePageRef : pdfPageRef;
+    const element = activeRef.current;
+    if (!element) return;
+
+    const updateHeight = () => setModePanelHeight(element.offsetHeight);
+    updateHeight();
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [
+    mode,
+    hasFiles,
+    files.length,
+    sizeWarning,
+    isProcessing,
+    canDownload,
+    allFinished,
+    pendingFiles.length,
+    processedCount,
+    settings,
+  ]);
+
+  const renderModeBody = (pageMode: CompressionMode) => (
+    <>
+      <BorderBeam size="md" colorVariant="colorful" theme="dark" strength={0.3} active={pageMode === mode && beamActive}>
+        <SettingsPanel
+          mode={pageMode}
+          settings={settings}
+          onChange={setSettings}
+          disabled={isProcessing || pageMode !== mode}
+        />
+      </BorderBeam>
+
+      <AnimatePresence>
+        {sizeWarning && pageMode === mode && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mt-3 overflow-hidden"
+          >
+            <p className="text-[12px] text-amber-300 bg-amber-950/40 border border-amber-800/40 rounded-lg px-3 py-2">
+              Total source size exceeds 200 MB — large batches may be slow or run out of browser memory.
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="mt-4">
+        {!hasFiles ? (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, delay: 0.14 }}
+          >
+            <BorderBeam size="md" colorVariant="colorful" theme="dark" active={pageMode === mode && isDragging}>
+              <UploadZone
+                mode={pageMode}
+                onFiles={handleAddFiles}
+                onDragStateChange={pageMode === mode ? setIsDragging : undefined}
+                disabled={pageMode !== mode}
+              />
+            </BorderBeam>
+          </motion.div>
+        ) : (
+          <div>
+            <InlinePreview
+              key={`${pageMode}-${files[0].id}`}
+              file={files[0]}
+              settings={settings}
+            />
+
+            <UploadZone
+              mode={pageMode}
+              onFiles={handleAddFiles}
+              compact
+              disabled={isProcessing || pageMode !== mode}
+            />
+
+            <div className="mt-3">
+              <FileGrid files={files} onRemove={handleRemoveFile} />
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
 
   const handleModeChange = useCallback((nextMode: CompressionMode) => {
     if (nextMode === mode || isProcessing) return;
@@ -258,70 +351,32 @@ export default function HomePage() {
           </div>
         </motion.header>
 
-        {/* ── Settings Panel ───────────────────────────────────────────────── */}
+        {/* ── Mode Workspace ──────────────────────────────────────────────── */}
         <motion.div
           initial={{ opacity: 0, y: 6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.08 }}
         >
-          <BorderBeam size="md" colorVariant="colorful" theme="dark" strength={0.3} active={beamActive}>
-            <SettingsPanel
-              mode={mode}
-              settings={settings}
-              onChange={setSettings}
-              disabled={isProcessing}
-            />
-          </BorderBeam>
-        </motion.div>
-
-        {/* ── Size Warning ─────────────────────────────────────────────────── */}
-        <AnimatePresence>
-          {sizeWarning && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mt-3 overflow-hidden"
-            >
-              <p className="text-[12px] text-amber-300 bg-amber-950/40 border border-amber-800/40 rounded-lg px-3 py-2">
-                Total source size exceeds 200 MB — large batches may be slow or run out of browser memory.
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* ── Upload zone / File grid ───────────────────────────────────────── */}
-        <div className="mt-4">
-          {!hasFiles ? (
-            <motion.div
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, delay: 0.14 }}
-            >
-              <BorderBeam size="md" colorVariant="colorful" theme="dark" active={isDragging}>
-                <UploadZone mode={mode} onFiles={handleAddFiles} onDragStateChange={setIsDragging} />
-              </BorderBeam>
-            </motion.div>
-          ) : (
-            <div>
-              {/* Before/after comparison — always shows the first file as the reference.
-                  key forces a remount (and fresh compression) if the first file changes. */}
-              <InlinePreview
-                key={files[0].id}
-                file={files[0]}
-                settings={settings}
-              />
-
-              {/* Compact add-more strip */}
-              <UploadZone mode={mode} onFiles={handleAddFiles} compact disabled={isProcessing} />
-
-              {/* File grid */}
-              <div className="mt-3">
-                <FileGrid files={files} onRemove={handleRemoveFile} />
+          <div
+            className="t-page-slide"
+            data-page={mode === 'image' ? '1' : '2'}
+            style={{
+              height: modePanelHeight ?? undefined,
+              transition: 'height var(--page-slide-dur) var(--page-slide-ease)',
+            }}
+          >
+            <section className="t-page" data-page-id="1">
+              <div ref={imagePageRef}>
+                {renderModeBody('image')}
               </div>
-            </div>
-          )}
-        </div>
+            </section>
+            <section className="t-page" data-page-id="2">
+              <div ref={pdfPageRef}>
+                {renderModeBody('pdf')}
+              </div>
+            </section>
+          </div>
+        </motion.div>
 
         {/* ── Progress banner ───────────────────────────────────────────────── */}
         <AnimatePresence>

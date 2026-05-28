@@ -21,6 +21,7 @@ import UploadZone from '@/components/upload-zone';
 import SettingsPanel from '@/components/settings-panel';
 import FileGrid from '@/components/file-grid';
 import InlinePreview from '@/components/inline-preview';
+import GlobalDropOverlay from '@/components/global-drop-overlay';
 import TextSwap from '@/components/text-swap';
 import ProgressBanner from '@/components/progress-banner';
 import SummaryBanner from '@/components/summary-banner';
@@ -75,6 +76,7 @@ export default function HomePage() {
   const [currentFileId, setCurrentFileId] = useState<string | null>(null);
   const [sizeWarning, setSizeWarning] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [btnHover, setBtnHover] = useState(false);
   const stopRef = useRef(false);
 
   // ── Derived state ────────────────────────────────────────────────────────
@@ -287,23 +289,29 @@ export default function HomePage() {
               transition={{ duration: 0.2 }}
               className="mt-5 flex items-center flex-wrap gap-3"
             >
-              {/* Compress — styled off the beam */}
+              {/* Compress — white at rest, dark + beam on hover / processing */}
               {!allFinished && (
                 <BorderBeam
                   size="sm"
                   colorVariant="colorful"
                   theme="dark"
-                  active={canCompress || isProcessing}
+                  active={(btnHover && canCompress) || isProcessing}
                   className="inline-flex"
                 >
                   <button
                     onClick={handleCompress}
                     disabled={!canCompress}
+                    onMouseEnter={() => setBtnHover(true)}
+                    onMouseLeave={() => setBtnHover(false)}
                     className={cn(
-                      'inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-150',
-                      canCompress || isProcessing
-                        ? 'bg-card text-foreground active:scale-[0.98]'
-                        : 'bg-foreground/[0.04] text-muted cursor-not-allowed',
+                      'inline-flex items-center gap-2 px-4 py-2 rounded-xl text-[13px] font-semibold transition-all duration-200',
+                      isProcessing
+                        ? 'bg-card text-foreground'
+                        : canCompress
+                          ? (btnHover
+                            ? 'bg-card text-foreground active:scale-[0.98]'
+                            : 'bg-white text-[#111111] active:scale-[0.98]')
+                          : 'bg-foreground/[0.04] text-muted cursor-not-allowed',
                     )}
                   >
                     {isProcessing && (
@@ -350,6 +358,9 @@ export default function HomePage() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* ── Global drop overlay ───────────────────────────────────────────── */}
+        <GlobalDropOverlay onFiles={handleAddFiles} />
 
         {/* ── Footer ────────────────────────────────────────────────────────── */}
         <motion.footer

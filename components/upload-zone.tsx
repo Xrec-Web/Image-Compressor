@@ -72,6 +72,7 @@ export default function UploadZone({ onFiles, onDragStateChange, compact = false
         onDrop={handleDrop}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
+        data-drop-zone
         className={cn(
           'flex items-center justify-center gap-2 w-full py-2.5 rounded-lg border border-dashed text-sm text-muted transition-colors cursor-pointer',
           isDraggingOver
@@ -96,6 +97,7 @@ export default function UploadZone({ onFiles, onDragStateChange, compact = false
       onDrop={handleDrop}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
+      data-drop-zone
       className={cn(
         'relative flex flex-col items-center justify-center w-full rounded-xl border border-dashed transition-all duration-200 cursor-pointer select-none',
         'min-h-[320px] px-8 py-14',

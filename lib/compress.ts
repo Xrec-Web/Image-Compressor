@@ -4,16 +4,54 @@ import { QUALITY_VALUES, DIMENSION_VALUES, FORMAT_MIME } from '@/types';
 import { isHeicFile } from '@/lib/utils';
 import { compressPdfFile } from '@/lib/pdf';
 
-// Cached AVIF encoder — avoids re-loading WASM on every file
-let _avifEncode: ((imageData: ImageData, opts?: { quality?: number; speed?: number }) => Promise<ArrayBuffer>) | null = null;
+// ── AVIF encoding (off-main-thread) ──────────────────────────────────────────
+// The encode runs in a Web Worker so the multi-threaded WASM encoder never
+// blocks the main thread (which froze the UI and logged Emscripten's
+// "Blocking on the main thread is very dangerous" warning). The worker is
+// created lazily on first AVIF use and reused for the rest of the session.
+let _avifWorker: Worker | null = null;
+let _avifReqId = 0;
+const _avifPending = new Map<
+  number,
+  { resolve: (buf: ArrayBuffer) => void; reject: (err: Error) => void }
+>();
 
-async function getAvifEncoder() {
-  if (!_avifEncode) {
-    // Dynamic import so WASM only loads when AVIF is actually selected
-    const mod = await import('@jsquash/avif');
-    _avifEncode = mod.encode;
+function getAvifWorker(): Worker {
+  if (!_avifWorker) {
+    _avifWorker = new Worker(new URL('./avif.worker.ts', import.meta.url));
+    _avifWorker.onmessage = (e: MessageEvent<{ id: number; buffer?: ArrayBuffer; error?: string }>) => {
+      const { id, buffer, error } = e.data;
+      const pending = _avifPending.get(id);
+      if (!pending) return;
+      _avifPending.delete(id);
+      if (error || !buffer) pending.reject(new Error(error ?? 'AVIF encode failed'));
+      else pending.resolve(buffer);
+    };
   }
-  return _avifEncode;
+  return _avifWorker;
+}
+
+function encodeAvif(
+  imageData: ImageData,
+  opts: { cqLevel?: number; speed?: number },
+): Promise<ArrayBuffer> {
+  const worker = getAvifWorker();
+  const id = ++_avifReqId;
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    _avifPending.set(id, { resolve, reject });
+    // Transfer the pixel buffer to the worker to avoid a copy of the full bitmap.
+    worker.postMessage(
+      {
+        id,
+        buffer: imageData.data.buffer,
+        width: imageData.width,
+        height: imageData.height,
+        cqLevel: opts.cqLevel,
+        speed: opts.speed,
+      },
+      [imageData.data.buffer],
+    );
+  });
 }
 
 /**
@@ -86,10 +124,13 @@ export async function compressFile(file: File, settings: Settings): Promise<Blob
     }
 
     const imageData = await getImageData(source, maxDimension);
-    const encode = await getAvifEncoder();
+
+    // AVIF uses cqLevel (0 = best … 63 = worst), the inverse of our 0–100
+    // quality scale, so map across: quality 100 → cqLevel 0, quality 0 → 63.
+    const cqLevel = Math.round(((100 - quality) / 100) * 63);
 
     // speed: 8 = faster encode, minor quality trade-off; fine for web use
-    const arrayBuffer = await encode(imageData, { quality, speed: 8 });
+    const arrayBuffer = await encodeAvif(imageData, { cqLevel, speed: 8 });
     return new Blob([arrayBuffer], { type: 'image/avif' });
   }
 

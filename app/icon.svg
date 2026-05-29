@@ -1,0 +1,11 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="32" height="32" rx="7" fill="#0A0A0A"/>
+  <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <!-- image glyph: tile with sun + mountain -->
+  <rect x="10" y="10" width="12" height="12" rx="2" fill="#FFFFFF" fill-opacity="0.16"/>
+  <circle cx="14" cy="14" r="1.6" fill="#FFFFFF"/>
+  <path d="M11 21l3-3.2 2 2 2.5-2.8L22 21H11z" fill="#FFFFFF"/>
+  <!-- compress arrows squeezing inward -->
+  <path d="M6 6h3.2M6 6v3.2M6 6l3.2 3.2" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M26 26h-3.2M26 26v-3.2M26 26l-3.2-3.2" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

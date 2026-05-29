@@ -227,7 +227,11 @@ export default function HomePage() {
       )}
 
       <div className="mt-4">
-        {!hasFiles ? (
+        {/* Inactive pages render only the (disabled) upload zone — never the
+            preview/grid. The preview's .t-panel-slide sets pointer-events:auto,
+            which would otherwise override the inactive page's pointer-events:none
+            and let an invisible stacked copy intercept drags on the active slider. */}
+        {!hasFiles || pageMode !== mode ? (
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Check, ChevronDown } from 'lucide-react';
@@ -11,6 +11,8 @@ interface SettingsPanelProps {
   mode?: CompressionMode;
   settings: Settings;
   onChange: (settings: Settings) => void;
+  /** Largest pixel dimension of the uploaded image(s); limits the Max-size choices. */
+  sourceDimension?: number;
   disabled?: boolean;
 }
 
@@ -207,8 +209,21 @@ export default function SettingsPanel({
   mode = 'image',
   settings,
   onChange,
+  sourceDimension,
   disabled,
 }: SettingsPanelProps) {
+  // Only offer a max-size that's actually smaller than the source (otherwise it
+  // wouldn't resize). "Original" is always available and shows the source size.
+  const dimensionOptions = useMemo<{ value: MaxDimension; label: string }[]>(() => {
+    return DIMENSION_OPTIONS.filter(
+      (o) => o.value === 'original' || sourceDimension == null || Number(o.value) < sourceDimension,
+    ).map((o) =>
+      o.value === 'original' && sourceDimension
+        ? { ...o, label: `Original · ${sourceDimension}px` }
+        : o,
+    );
+  }, [sourceDimension]);
+
   if (mode === 'pdf') {
     return (
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 bg-card border border-border rounded-xl">
@@ -238,7 +253,7 @@ export default function SettingsPanel({
         <div className="flex items-center gap-2.5">
           <span className="text-xs font-medium text-muted uppercase tracking-widest whitespace-nowrap">Max size</span>
           <CustomDropdown<MaxDimension>
-            options={DIMENSION_OPTIONS}
+            options={dimensionOptions}
             value={settings.maxDimension}
             onChange={(maxDimension) => onChange({ ...settings, maxDimension })}
             disabled={disabled}

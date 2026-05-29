@@ -11,6 +11,8 @@ export interface FileItem {
   name: string;
   originalSize: number;
   thumbnail: string; // data URL or blob URL
+  width?: number; // natural pixel dimensions (image mode only)
+  height?: number;
   status: FileStatus;
   compressedBlob?: Blob;
   compressedSize?: number;

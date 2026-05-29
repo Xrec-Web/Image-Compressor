@@ -176,7 +176,13 @@ export function estimateVideoSize(
  * Generate a compact thumbnail (data URL) for a file.
  * Handles HEIC by using browser-image-compression to decode first.
  */
-export async function generateThumbnail(file: File): Promise<string> {
+export interface ThumbnailResult {
+  thumbnail: string; // data URL, or '' on failure (caller falls back to an icon)
+  width: number; // natural source pixel dimensions (0 if decode failed)
+  height: number;
+}
+
+export async function generateThumbnail(file: File): Promise<ThumbnailResult> {
   const THUMB_SIZE = 120;
 
   return new Promise(async (resolve) => {
@@ -198,9 +204,11 @@ export async function generateThumbnail(file: File): Promise<string> {
       const img = new Image();
 
       img.onload = () => {
-        const scale = Math.min(1, THUMB_SIZE / Math.max(img.naturalWidth, img.naturalHeight));
-        const w = Math.round(img.naturalWidth * scale);
-        const h = Math.round(img.naturalHeight * scale);
+        const naturalW = img.naturalWidth;
+        const naturalH = img.naturalHeight;
+        const scale = Math.min(1, THUMB_SIZE / Math.max(naturalW, naturalH));
+        const w = Math.round(naturalW * scale);
+        const h = Math.round(naturalH * scale);
 
         const canvas = document.createElement('canvas');
         canvas.width = w;
@@ -209,17 +217,17 @@ export async function generateThumbnail(file: File): Promise<string> {
         ctx.drawImage(img, 0, 0, w, h);
 
         URL.revokeObjectURL(url);
-        resolve(canvas.toDataURL('image/jpeg', 0.75));
+        resolve({ thumbnail: canvas.toDataURL('image/jpeg', 0.75), width: naturalW, height: naturalH });
       };
 
       img.onerror = () => {
         URL.revokeObjectURL(url);
-        resolve(''); // fallback to icon
+        resolve({ thumbnail: '', width: 0, height: 0 }); // fallback to icon
       };
 
       img.src = url;
     } catch {
-      resolve('');
+      resolve({ thumbnail: '', width: 0, height: 0 });
     }
   });
 }

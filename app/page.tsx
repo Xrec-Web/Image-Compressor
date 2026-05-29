@@ -1,6 +1,6 @@
 'use client';
 
-import { useReducer, useState, useCallback, useRef, useEffect } from 'react';
+import { useReducer, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Download, RotateCcw, ImageIcon, FileText, Video } from 'lucide-react';
@@ -153,6 +153,39 @@ export default function HomePage() {
   const totalOriginalSize = doneFiles.reduce((acc, f) => acc + f.originalSize, 0);
   const totalCompressedSize = doneFiles.reduce((acc, f) => acc + (f.compressedSize ?? 0), 0);
 
+  // Largest pixel dimension across the uploaded images — drives which "Max size"
+  // options are offered (only those that would actually downscale the source).
+  const maxSourceDimension = useMemo(() => {
+    const dims = files
+      .filter((f) => f.mode === 'image' && f.width && f.height)
+      .map((f) => Math.max(f.width!, f.height!));
+    return dims.length ? Math.max(...dims) : null;
+  }, [files]);
+
+  // Default the max-size to the uploaded image's own size, only auto-reducing
+  // when it exceeds 1920px. On later additions to a batch, never override the
+  // user's choice — just clamp a selection that no longer downscales anything.
+  const hadSourceRef = useRef(false);
+  useEffect(() => {
+    if (mode !== 'image' || maxSourceDimension == null) {
+      hadSourceRef.current = false;
+      return;
+    }
+    const freshUpload = !hadSourceRef.current;
+    hadSourceRef.current = true;
+
+    setSettings((prev) => {
+      let maxDimension = prev.maxDimension;
+      if (freshUpload) {
+        maxDimension = maxSourceDimension > 1920 ? '1920' : 'original';
+      } else if (maxDimension !== 'original' && Number(maxDimension) >= maxSourceDimension) {
+        // Selected cap is ≥ the source, so it wouldn't resize — fall back to original.
+        maxDimension = 'original';
+      }
+      return maxDimension === prev.maxDimension ? prev : { ...prev, maxDimension };
+    });
+  }, [mode, maxSourceDimension]);
+
   useEffect(() => {
     const activeRef = mode === 'image' ? imagePageRef : mode === 'pdf' ? pdfPageRef : videoPageRef;
     const element = activeRef.current;
@@ -199,6 +232,7 @@ export default function HomePage() {
             mode={pageMode}
             settings={settings}
             onChange={setSettings}
+            sourceDimension={pageMode === 'image' ? maxSourceDimension ?? undefined : undefined}
             disabled={isProcessing || pageMode !== mode}
           />
         )}
@@ -316,20 +350,35 @@ export default function HomePage() {
       setIsIngesting(true);
       try {
         const items: FileItem[] = await Promise.all(
-          accepted.map(async (file) => ({
-            id: crypto.randomUUID(),
-            file,
-            mode,
-            name: file.name,
-            originalSize: file.size,
-            thumbnail:
-              mode === 'image'
-                ? await generateThumbnail(file)
-                : mode === 'pdf'
-                  ? await generatePdfThumbnail(file)
-                  : await generateVideoThumbnail(file),
-            status: 'pending' as FileStatus,
-          })),
+          accepted.map(async (file) => {
+            let thumbnail = '';
+            let width: number | undefined;
+            let height: number | undefined;
+
+            if (mode === 'image') {
+              const result = await generateThumbnail(file);
+              thumbnail = result.thumbnail;
+              // 0 means decode failed — leave dimensions undefined.
+              width = result.width || undefined;
+              height = result.height || undefined;
+            } else if (mode === 'pdf') {
+              thumbnail = await generatePdfThumbnail(file);
+            } else {
+              thumbnail = await generateVideoThumbnail(file);
+            }
+
+            return {
+              id: crypto.randomUUID(),
+              file,
+              mode,
+              name: file.name,
+              originalSize: file.size,
+              thumbnail,
+              width,
+              height,
+              status: 'pending' as FileStatus,
+            };
+          }),
         );
 
         dispatch({ type: 'ADD_FILES', files: items });

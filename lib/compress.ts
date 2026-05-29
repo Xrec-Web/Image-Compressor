@@ -1,53 +1,56 @@
 import imageCompression from 'browser-image-compression';
-import type { Settings } from '@/types';
+import type { OutputFormat, Settings } from '@/types';
 import { QUALITY_VALUES, DIMENSION_VALUES, FORMAT_MIME } from '@/types';
 import { isHeicFile } from '@/lib/utils';
 import { compressPdfFile } from '@/lib/pdf';
 
-// ── AVIF encoding (off-main-thread) ──────────────────────────────────────────
-// The encode runs in a Web Worker so the multi-threaded WASM encoder never
-// blocks the main thread (which froze the UI and logged Emscripten's
+// ── Encoding (off-main-thread) ───────────────────────────────────────────────
+// All raster encoding runs in a Web Worker so the multi-threaded WASM codecs
+// never block the main thread (which froze the UI and logged Emscripten's
 // "Blocking on the main thread is very dangerous" warning). The worker is
-// created lazily on first AVIF use and reused for the rest of the session.
-let _avifWorker: Worker | null = null;
-let _avifReqId = 0;
-const _avifPending = new Map<
+// created lazily on first use and reused for the rest of the session.
+let _worker: Worker | null = null;
+let _reqId = 0;
+const _pending = new Map<
   number,
   { resolve: (buf: ArrayBuffer) => void; reject: (err: Error) => void }
 >();
 
-function getAvifWorker(): Worker {
-  if (!_avifWorker) {
-    _avifWorker = new Worker(new URL('./avif.worker.ts', import.meta.url));
-    _avifWorker.onmessage = (e: MessageEvent<{ id: number; buffer?: ArrayBuffer; error?: string }>) => {
+function getWorker(): Worker {
+  if (!_worker) {
+    _worker = new Worker(new URL('./encode.worker.ts', import.meta.url));
+    _worker.onmessage = (e: MessageEvent<{ id: number; buffer?: ArrayBuffer; error?: string }>) => {
       const { id, buffer, error } = e.data;
-      const pending = _avifPending.get(id);
+      const pending = _pending.get(id);
       if (!pending) return;
-      _avifPending.delete(id);
-      if (error || !buffer) pending.reject(new Error(error ?? 'AVIF encode failed'));
+      _pending.delete(id);
+      if (error || !buffer) pending.reject(new Error(error ?? 'Encode failed'));
       else pending.resolve(buffer);
     };
   }
-  return _avifWorker;
+  return _worker;
 }
 
-function encodeAvif(
+function encodeInWorker(
   imageData: ImageData,
-  opts: { cqLevel?: number; speed?: number },
+  format: OutputFormat,
+  quality: number,
+  pngColors: number | null,
 ): Promise<ArrayBuffer> {
-  const worker = getAvifWorker();
-  const id = ++_avifReqId;
+  const worker = getWorker();
+  const id = ++_reqId;
   return new Promise<ArrayBuffer>((resolve, reject) => {
-    _avifPending.set(id, { resolve, reject });
+    _pending.set(id, { resolve, reject });
     // Transfer the pixel buffer to the worker to avoid a copy of the full bitmap.
     worker.postMessage(
       {
         id,
+        format,
         buffer: imageData.data.buffer,
         width: imageData.width,
         height: imageData.height,
-        cqLevel: opts.cqLevel,
-        speed: opts.speed,
+        quality,
+        pngColors,
       },
       [imageData.data.buffer],
     );
@@ -55,10 +58,15 @@ function encodeAvif(
 }
 
 /**
- * Decode any image blob into an ImageData with optional resize.
- * Used for the AVIF encoding path.
+ * Decode an image blob into ImageData with optional resize. When `background`
+ * is given (used for JPEG, which has no alpha) the canvas is painted with it
+ * first so transparent pixels flatten onto a solid colour instead of black.
  */
-async function getImageData(source: Blob, maxDimension: number | undefined): Promise<ImageData> {
+async function getImageData(
+  source: Blob,
+  maxDimension: number | undefined,
+  background?: string,
+): Promise<ImageData> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(source);
     const img = new Image();
@@ -77,6 +85,11 @@ async function getImageData(source: Blob, maxDimension: number | undefined): Pro
       canvas.width = w;
       canvas.height = h;
       const ctx = canvas.getContext('2d')!;
+
+      if (background) {
+        ctx.fillStyle = background;
+        ctx.fillRect(0, 0, w, h);
+      }
       ctx.drawImage(img, 0, 0, w, h);
 
       const imageData = ctx.getImageData(0, 0, w, h);
@@ -95,10 +108,9 @@ async function getImageData(source: Blob, maxDimension: number | undefined): Pro
 
 /**
  * Re-encoding can produce a file *larger* than the source — most commonly with
- * PNG, which is lossless and whose quality setting is ignored, so the browser's
- * encoder can't beat an already-optimized original. When the output format
- * matches the source, never hand back something bigger: keep the original bytes
- * (and therefore its identical format/extension).
+ * lossless PNG on an already-optimized original. When the output format matches
+ * the source, never hand back something bigger: keep the original bytes (and
+ * therefore its identical format/extension).
  */
 function keepSmaller(original: File, candidate: Blob, targetMime: string): Blob {
   if (original.type === targetMime && candidate.size >= original.size) {
@@ -108,8 +120,19 @@ function keepSmaller(original: File, candidate: Blob, targetMime: string): Blob 
 }
 
 /**
- * Compress a single file according to settings.
- * Sequential-safe: no Web Workers, no parallelism.
+ * PNG palette size per quality preset. `null` keeps PNG fully lossless (oxipng
+ * only); a number triggers colour quantization so oxipng can write a small
+ * indexed PNG. Lower preset → fewer colours → smaller file.
+ */
+const PNG_COLORS: Record<Settings['quality'], number | null> = {
+  high: null,
+  balanced: 256,
+  small: 128,
+};
+
+/**
+ * Compress a single file according to settings. The heavy encode happens in a
+ * Web Worker; decoding/resizing stays on the main thread (it's cheap).
  */
 export async function compressFile(file: File, settings: Settings): Promise<Blob> {
   if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
@@ -121,44 +144,26 @@ export async function compressFile(file: File, settings: Settings): Promise<Blob
 
   const quality = QUALITY_VALUES[settings.quality];
   const maxDimension = DIMENSION_VALUES[settings.maxDimension];
+  const format = settings.format;
+  const mimeType = FORMAT_MIME[format];
 
-  // ── AVIF path ─────────────────────────────────────────────────────────────
-  if (settings.format === 'avif') {
-    let source: Blob = file;
-
-    // HEIC must be decoded first — browsers can't render it via img.src
-    if (isHeicFile(file)) {
-      source = await imageCompression(file, {
-        maxSizeMB: 999,
-        maxWidthOrHeight: maxDimension,
-        useWebWorker: false,
-        fileType: 'image/jpeg',
-        initialQuality: 0.98,
-      });
-    }
-
-    const imageData = await getImageData(source, maxDimension);
-
-    // AVIF uses cqLevel (0 = best … 63 = worst), the inverse of our 0–100
-    // quality scale, so map across: quality 100 → cqLevel 0, quality 0 → 63.
-    const cqLevel = Math.round(((100 - quality) / 100) * 63);
-
-    // speed: 8 = faster encode, minor quality trade-off; fine for web use
-    const arrayBuffer = await encodeAvif(imageData, { cqLevel, speed: 8 });
-    return keepSmaller(file, new Blob([arrayBuffer], { type: 'image/avif' }), 'image/avif');
+  // HEIC can't be decoded via <img>, so transcode it to JPEG first; everything
+  // else is decoded straight from the original blob.
+  let source: Blob = file;
+  if (isHeicFile(file)) {
+    source = await imageCompression(file, {
+      maxSizeMB: 999,
+      maxWidthOrHeight: maxDimension,
+      useWebWorker: false,
+      fileType: 'image/jpeg',
+      initialQuality: 0.98,
+    });
   }
 
-  // ── JPG / WebP / PNG path ───────────────────────────────────────────────────
-  const mimeType = FORMAT_MIME[settings.format];
+  // JPEG has no alpha channel — flatten transparency onto white.
+  const background = format === 'jpg' ? '#ffffff' : undefined;
+  const imageData = await getImageData(source, maxDimension, background);
 
-  const compressed = await imageCompression(file, {
-    // Very high maxSizeMB disables size-based iteration — quality is the only lever
-    maxSizeMB: 999,
-    maxWidthOrHeight: maxDimension,
-    useWebWorker: false,
-    fileType: mimeType as 'image/jpeg' | 'image/webp' | 'image/png',
-    initialQuality: quality / 100,
-  });
-
-  return keepSmaller(file, compressed, mimeType);
+  const bytes = await encodeInWorker(imageData, format, quality, PNG_COLORS[settings.quality]);
+  return keepSmaller(file, new Blob([bytes], { type: mimeType }), mimeType);
 }

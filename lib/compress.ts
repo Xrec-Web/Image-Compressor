@@ -94,6 +94,20 @@ async function getImageData(source: Blob, maxDimension: number | undefined): Pro
 }
 
 /**
+ * Re-encoding can produce a file *larger* than the source — most commonly with
+ * PNG, which is lossless and whose quality setting is ignored, so the browser's
+ * encoder can't beat an already-optimized original. When the output format
+ * matches the source, never hand back something bigger: keep the original bytes
+ * (and therefore its identical format/extension).
+ */
+function keepSmaller(original: File, candidate: Blob, targetMime: string): Blob {
+  if (original.type === targetMime && candidate.size >= original.size) {
+    return original;
+  }
+  return candidate;
+}
+
+/**
  * Compress a single file according to settings.
  * Sequential-safe: no Web Workers, no parallelism.
  */
@@ -131,13 +145,13 @@ export async function compressFile(file: File, settings: Settings): Promise<Blob
 
     // speed: 8 = faster encode, minor quality trade-off; fine for web use
     const arrayBuffer = await encodeAvif(imageData, { cqLevel, speed: 8 });
-    return new Blob([arrayBuffer], { type: 'image/avif' });
+    return keepSmaller(file, new Blob([arrayBuffer], { type: 'image/avif' }), 'image/avif');
   }
 
-  // ── JPG / WebP path ───────────────────────────────────────────────────────
+  // ── JPG / WebP / PNG path ───────────────────────────────────────────────────
   const mimeType = FORMAT_MIME[settings.format];
 
-  return imageCompression(file, {
+  const compressed = await imageCompression(file, {
     // Very high maxSizeMB disables size-based iteration — quality is the only lever
     maxSizeMB: 999,
     maxWidthOrHeight: maxDimension,
@@ -145,4 +159,6 @@ export async function compressFile(file: File, settings: Settings): Promise<Blob
     fileType: mimeType as 'image/jpeg' | 'image/webp' | 'image/png',
     initialQuality: quality / 100,
   });
+
+  return keepSmaller(file, compressed, mimeType);
 }
